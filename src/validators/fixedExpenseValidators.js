@@ -1,4 +1,4 @@
-import { body } from 'express-validator';
+import { body, param } from 'express-validator';
 
 /**
  * Validation rules for creating fixed expenses
@@ -6,8 +6,8 @@ import { body } from 'express-validator';
 export const createFixedExpenseValidator = [
   body('id')
     .optional()
-    .isString()
-    .withMessage('ID must be a string'),
+    .custom(value => typeof value === 'string' || typeof value === 'number')
+    .withMessage('ID must be a string or number'),
     
   body('name')
     .trim()
@@ -36,9 +36,9 @@ export const createFixedExpenseValidator = [
  * Validation rules for updating fixed expenses
  */
 export const updateFixedExpenseValidator = [
-  body('id')
+  param('id')
     .isString()
-    .withMessage('ID is required and must be a string'),
+    .withMessage('ID param is required and must be a string'),
     
   body('name')
     .optional()
@@ -65,4 +65,13 @@ export const updateFixedExpenseValidator = [
     .optional()
     .isBoolean()
     .withMessage('Active must be a boolean')
+];
+
+/**
+ * Validation rules for deleting fixed expenses
+ */
+export const deleteFixedExpenseValidator = [
+  param('id')
+    .isString()
+    .withMessage('ID param is required and must be a string')
 ];

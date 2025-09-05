@@ -182,6 +182,75 @@ class GoogleSheetsService {
   }
 
   /**
+   * Update expense in Google Sheets
+   */
+  async updateExpense(expense) {
+    try {
+      logger.info('Updating expense by id in Google Sheets', {
+        id: expense.id,
+        description: expense.description
+      });
+
+      if (!expense.id) {
+        throw new ApiError(400, 'Missing required field: id');
+      }
+
+      const rowNumber = await this.findRowNumberById('Expenses', expense.id);
+      if (!rowNumber) {
+        throw new ApiError(404, 'Expense not found');
+      }
+
+      const existingResp = await this.makeRequest(`/values/Expenses!A${rowNumber}:F${rowNumber}`);
+      const existing = (existingResp.values && existingResp.values[0]) || [];
+
+      const merged = [
+        expense.id,
+        expense.date !== undefined ? expense.date : (existing[1] || ''),
+        expense.description !== undefined ? expense.description : (existing[2] || ''),
+        expense.amount !== undefined ? expense.amount.toString() : (existing[3] || ''),
+        expense.categoryId !== undefined ? expense.categoryId.toString() : (existing[4] || ''),
+        expense.isFixed !== undefined ? (expense.isFixed ? 'TRUE' : 'FALSE') : (existing[5] || '')
+      ];
+
+      const response = await this.makeRequest(`/values/Expenses!A${rowNumber}:F${rowNumber}?valueInputOption=RAW`, {
+        method: 'PUT',
+        body: JSON.stringify({ values: [merged] })
+      });
+
+      logger.info('Expense updated successfully', { expenseId: expense.id, rowNumber });
+      return response;
+    } catch (error) {
+      logger.error('Error updating expense', {
+        id: expense.id,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Delete expense in Google Sheets
+   */
+  async deleteExpense(id) {
+    try {
+      logger.info('Deleting expense in Google Sheets', { id });
+
+      const rowNumber = await this.findRowNumberById('Expenses', id);
+      if (!rowNumber) {
+        throw new ApiError(404, 'Expense not found');
+      }
+
+      const response = await this.deleteRowByNumber('Expenses', rowNumber);
+
+      logger.info('Expense deleted successfully', { id, rowNumber });
+      return response;
+    } catch (error) {
+      logger.error('Error deleting expense', { id, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
    * Get budget from Google Sheets
    */
   async getBudget() {
@@ -284,33 +353,155 @@ class GoogleSheetsService {
    */
   async updateFixedExpense(fixedExpense) {
     try {
-      logger.info('Updating fixed expense in Google Sheets', { 
+      logger.info('Updating fixed expense by id in Google Sheets', { 
         id: fixedExpense.id, 
         name: fixedExpense.name 
       });
 
-      // Only include defined values
-      const values = [[
-        fixedExpense.id,
-        fixedExpense.name || '',
-        fixedExpense.amount ? fixedExpense.amount.toString() : '',
-        fixedExpense.categoryId ? fixedExpense.categoryId.toString() : '',
-        fixedExpense.dayOfMonth ? fixedExpense.dayOfMonth.toString() : '',
-        fixedExpense.active !== undefined ? (fixedExpense.active ? 'TRUE' : 'FALSE') : ''
-      ]];
+      if (!fixedExpense.id) {
+        throw new ApiError(400, 'Missing required field: id');
+      }
 
-      const response = await this.makeRequest('/values/FixedExpenses!A:F?valueInputOption=RAW', {
+      const rowNumber = await this.findRowNumberById('FixedExpenses', fixedExpense.id);
+      if (!rowNumber) {
+        throw new ApiError(404, 'Fixed expense not found');
+      }
+
+      const existingResp = await this.makeRequest(`/values/FixedExpenses!A${rowNumber}:F${rowNumber}`);
+      const existing = (existingResp.values && existingResp.values[0]) || [];
+
+      const merged = [
+        fixedExpense.id,
+        fixedExpense.name !== undefined ? fixedExpense.name : (existing[1] || ''),
+        fixedExpense.amount !== undefined ? fixedExpense.amount.toString() : (existing[2] || ''),
+        fixedExpense.categoryId !== undefined ? fixedExpense.categoryId.toString() : (existing[3] || ''),
+        fixedExpense.dayOfMonth !== undefined ? fixedExpense.dayOfMonth.toString() : (existing[4] || ''),
+        fixedExpense.active !== undefined ? (fixedExpense.active ? 'TRUE' : 'FALSE') : (existing[5] || '')
+      ];
+
+      const response = await this.makeRequest(`/values/FixedExpenses!A${rowNumber}:F${rowNumber}?valueInputOption=RAW`, {
         method: 'PUT',
-        body: JSON.stringify({ values })
+        body: JSON.stringify({ values: [merged] })
       });
 
-      logger.info('Fixed expense updated successfully', { expenseId: fixedExpense.id });
+      logger.info('Fixed expense updated successfully', { expenseId: fixedExpense.id, rowNumber });
       return response;
     } catch (error) {
       logger.error('Error updating fixed expense', { 
         id: fixedExpense.id, 
         error: error.message 
       });
+      throw error;
+    }
+  }
+
+  /**
+   * Delete fixed expense in Google Sheets
+   */
+  async deleteFixedExpense(id) {
+    try {
+      logger.info('Deleting fixed expense in Google Sheets', { id });
+
+      const rowNumber = await this.findRowNumberById('FixedExpenses', id);
+      if (!rowNumber) {
+        throw new ApiError(404, 'Fixed expense not found');
+      }
+
+      const response = await this.deleteRowByNumber('FixedExpenses', rowNumber);
+
+      logger.info('Fixed expense deleted successfully', { id, rowNumber });
+      return response;
+    } catch (error) {
+      logger.error('Error deleting fixed expense', { id, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Find the row number (1-based) for a given id in column A, skipping header
+   */
+  async findRowNumberById(sheetTitle, id) {
+    try {
+      const response = await this.makeRequest(`/values/${sheetTitle}!A:A`);
+      const rows = response.values || [];
+      for (let i = 1; i < rows.length; i++) {
+        const value = rows[i] && rows[i][0] !== undefined ? rows[i][0] : undefined;
+        if (value === id) {
+          return i + 1; // 1-based row number
+        }
+      }
+      return null;
+    } catch (error) {
+      logger.error('Error finding row by id', { sheetTitle, id, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a row by 1-based row number using BatchUpdate
+   */
+  async deleteRowByNumber(sheetTitle, rowNumber) {
+    try {
+      const sheetId = await this.getGridSheetIdByTitle(sheetTitle);
+      if (sheetId === null || sheetId === undefined) {
+        throw new ApiError(500, `Sheet not found: ${sheetTitle}`);
+      }
+
+      const startIndex = rowNumber - 1; // zero-based inclusive
+      const endIndex = rowNumber; // zero-based exclusive
+
+      const body = {
+        requests: [
+          {
+            deleteDimension: {
+              range: {
+                sheetId,
+                dimension: 'ROWS',
+                startIndex,
+                endIndex
+              }
+            }
+          }
+        ]
+      };
+
+      const response = await this.makeRequest(':batchUpdate', {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+
+      return response;
+    } catch (error) {
+      logger.error('Error deleting row by number', { sheetTitle, rowNumber, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Resolve and cache grid sheetId by its title
+   */
+  async getGridSheetIdByTitle(title) {
+    try {
+      if (!this.sheetTitleToGridId) {
+        this.sheetTitleToGridId = {};
+      }
+      if (this.sheetTitleToGridId[title] !== undefined) {
+        return this.sheetTitleToGridId[title];
+      }
+
+      const meta = await this.makeRequest('?fields=sheets.properties');
+      const sheets = (meta && meta.sheets) || [];
+      for (const sheet of sheets) {
+        const props = sheet.properties || {};
+        if (props.title === title) {
+          this.sheetTitleToGridId[title] = props.sheetId;
+          return props.sheetId;
+        }
+      }
+      this.sheetTitleToGridId[title] = null;
+      return null;
+    } catch (error) {
+      logger.error('Error getting grid sheetId by title', { title, error: error.message });
       throw error;
     }
   }

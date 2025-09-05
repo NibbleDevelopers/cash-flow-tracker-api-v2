@@ -1,8 +1,8 @@
 import express from 'express';
 
 import { validate } from '../middleware/validation.js';
-import { createFixedExpenseValidator, updateFixedExpenseValidator } from '../validators/fixedExpenseValidators.js';
-import { addFixedExpense, getFixedExpenses, updateFixedExpense } from '../controllers/fixedExpenseController.js';
+import { createFixedExpenseValidator, updateFixedExpenseValidator, deleteFixedExpenseValidator } from '../validators/fixedExpenseValidators.js';
+import { addFixedExpense, getFixedExpenses, updateFixedExpense, deleteFixedExpense } from '../controllers/fixedExpenseController.js';
 
 const router = express.Router();
 
@@ -29,10 +29,21 @@ router.post('/',
  * @desc    Update fixed expense
  * @access  Public
  */
-router.put('/',
+router.put('/:id',
   updateFixedExpenseValidator,
   validate,
   updateFixedExpense
+);
+
+/**
+ * @route   DELETE /api/fixed-expenses
+ * @desc    Delete fixed expense
+ * @access  Public
+ */
+router.delete('/:id',
+  deleteFixedExpenseValidator,
+  validate,
+  deleteFixedExpense
 );
 
 export default router;

@@ -72,3 +72,78 @@ export const addExpense = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Update expense
+ */
+export const updateExpense = async (req, res, next) => {
+  try {
+    const { id: idParam } = req.params;
+    const { date, description, amount, categoryId, isFixed } = req.body;
+
+    logger.info('PUT /api/expenses - Updating expense', {
+      id: idParam,
+      description
+    });
+
+    if (!idParam) {
+      throw new ApiError(400, 'Missing required field: id');
+    }
+
+    const expense = {
+      id: idParam,
+      date,
+      description: description ? description.trim() : undefined,
+      amount: amount !== undefined ? parseFloat(amount) : undefined,
+      categoryId: categoryId !== undefined ? parseInt(categoryId) : undefined,
+      isFixed: isFixed !== undefined ? Boolean(isFixed) : undefined
+    };
+
+    const result = await sheetsService.updateExpense(expense);
+
+    logger.info('Expense updated successfully', { expenseId: expense.id });
+
+    res.json({
+      success: true,
+      message: 'Expense updated successfully',
+      data: expense,
+      result
+    });
+  } catch (error) {
+    logger.error('Error in updateExpense controller', {
+      body: req.body,
+      error: error.message
+    });
+    next(error);
+  }
+};
+
+/**
+ * Delete expense
+ */
+export const deleteExpense = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    logger.info('DELETE /api/expenses - Deleting expense', { id });
+
+    if (!id) {
+      throw new ApiError(400, 'Missing required field: id');
+    }
+
+    const result = await sheetsService.deleteExpense(id);
+
+    res.json({
+      success: true,
+      message: 'Expense deleted successfully',
+      id,
+      result
+    });
+  } catch (error) {
+    logger.error('Error in deleteExpense controller', {
+      body: req.body,
+      error: error.message
+    });
+    next(error);
+  }
+};

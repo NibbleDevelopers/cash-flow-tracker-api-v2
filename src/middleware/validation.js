@@ -63,6 +63,10 @@ export const validateBudget = [
  */
 export const validateFixedExpense = [
   (req, res, next) => {
+    // Coerce id to string if provided as number
+    if (req.body.id !== undefined && req.body.id !== null) {
+      req.body.id = String(req.body.id);
+    }
     // Ensure amount is a number
     if (req.body.amount) {
       req.body.amount = parseFloat(req.body.amount);

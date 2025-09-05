@@ -1,4 +1,4 @@
-﻿import { body } from 'express-validator';
+﻿import { body, param } from 'express-validator';
 
 /**
  * Validation rules for creating/updating expenses
@@ -36,9 +36,9 @@ export const createExpenseValidator = [
  * Validation rules for updating expenses
  */
 export const updateExpenseValidator = [
-  body('id')
+  param('id')
     .isString()
-    .withMessage('ID is required and must be a string'),
+    .withMessage('ID param is required and must be a string'),
     
   body('date')
     .optional()
@@ -65,4 +65,13 @@ export const updateExpenseValidator = [
     .optional()
     .isBoolean()
     .withMessage('isFixed must be a boolean')
+];
+
+/**
+ * Validation rules for deleting expenses
+ */
+export const deleteExpenseValidator = [
+  param('id')
+    .isString()
+    .withMessage('ID param is required and must be a string')
 ];

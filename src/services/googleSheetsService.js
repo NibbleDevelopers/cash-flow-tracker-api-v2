@@ -136,7 +136,8 @@ class GoogleSheetsService {
   async getExpenses() {
     try {
       logger.info('Fetching expenses from Google Sheets');
-      const response = await this.makeRequest('/values/Expenses!A:F');
+      // Include column G for fixedExpenseId linkage
+      const response = await this.makeRequest('/values/Expenses!A:G');
       const expenses = response.values || [];
       logger.info('Expenses fetched successfully', { count: expenses.length });
       return expenses;
@@ -176,6 +177,41 @@ class GoogleSheetsService {
       logger.error('Error adding expense', { 
         expense: expense.description, 
         error: error.message 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Add multiple expenses to Google Sheets in a single append
+   */
+  async addExpensesBulk(expenses) {
+    try {
+      logger.info('Adding multiple expenses to Google Sheets', { count: expenses.length });
+  
+      // Mapea cada objeto de gasto a un arreglo de valores para la fila de la hoja de cálculo
+      const values = expenses.map(expense => [
+        expense.id,
+        expense.date,
+        expense.description,
+        expense.amount.toString(),
+        expense.categoryId.toString(),
+        expense.isFixed ? 'TRUE' : 'FALSE',
+        expense.fixedExpenseId ? String(expense.fixedExpenseId) : ''
+      ]);
+  
+      // Llama a la API una sola vez para agregar todas las filas
+      const response = await this.makeRequest('/values/Expenses!A:G:append?valueInputOption=RAW', {
+        method: 'POST',
+        body: JSON.stringify({ values })
+      });
+  
+      logger.info('Multiple expenses added successfully', { count: expenses.length });
+      return response;
+    } catch (error) {
+      logger.error('Error adding multiple expenses', { 
+        error: error.message,
+        expensesCount: expenses.length 
       });
       throw error;
     }
@@ -514,37 +550,79 @@ class GoogleSheetsService {
       logger.info('Generating fixed expenses for month', { month });
       
       const fixedExpenses = await this.getFixedExpenses();
-      const monthStart = new Date(`${month}-01`);
-      const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+      // Parse month safely (YYYY-MM)
+      const [yearStr, monthStr] = (month || '').split('-');
+      const year = parseInt(yearStr, 10);
+      const monthIndex = parseInt(monthStr, 10) - 1; // 0-based
+      if (Number.isNaN(year) || Number.isNaN(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+        throw new ApiError(400, 'Invalid month format. Expected YYYY-MM');
+      }
+
+      const monthStart = new Date(year, monthIndex, 1);
+      const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
       
       const generatedExpenses = [];
       
       for (const fixedExpense of fixedExpenses.slice(1)) { // Skip header
         if (fixedExpense[5] === 'TRUE') { // If active
-          const dayOfMonth = parseInt(fixedExpense[4]);
-          const expenseDate = new Date(monthStart.getFullYear(), monthStart.getMonth(), dayOfMonth);
-          
-          // Only generate if the date is valid for this month
-          if (expenseDate >= monthStart && expenseDate <= monthEnd) {
-            generatedExpenses.push({
-              id: Date.now() + Math.random().toString(36).substr(2, 9),
-              date: expenseDate.toISOString().split('T')[0],
-              description: fixedExpense[1],
-              amount: parseFloat(fixedExpense[2]),
-              categoryId: parseInt(fixedExpense[3]),
-              isFixed: true,
-              fixedExpenseId: fixedExpense[0]
-            });
+          const requestedDay = parseInt(fixedExpense[4], 10);
+          if (Number.isNaN(requestedDay) || requestedDay <= 0) {
+            continue;
           }
+
+          // Clamp to last valid day of the target month
+          const clampedDay = Math.min(requestedDay, daysInMonth);
+          const expenseDate = new Date(year, monthIndex, clampedDay);
+
+          // Format date as YYYY-MM-DD without timezone shifts
+          const yyyy = expenseDate.getFullYear();
+          const mm = String(expenseDate.getMonth() + 1).padStart(2, '0');
+          const dd = String(expenseDate.getDate()).padStart(2, '0');
+          const dateStr = `${yyyy}-${mm}-${dd}`;
+
+          
+          generatedExpenses.push({
+            id: Date.now() + Math.random().toString(36).slice(2, 11),
+            date: dateStr,
+            description: fixedExpense[1],
+            amount: parseFloat(fixedExpense[2]),
+            categoryId: parseInt(fixedExpense[3]),
+            isFixed: true,
+            fixedExpenseId: fixedExpense[0]
+          });
         }
       }
       
-      logger.info('Fixed expenses generated successfully', { 
-        month, 
-        count: generatedExpenses.length 
+      // Build deduplication set from existing expenses using ONLY (date + fixedExpenseId)
+      const existing = await this.getExpenses();
+      const existingSet = new Set();
+      for (const row of existing.slice(1)) {
+        const existingDate = row[1];
+        const existingFixedId = row[6] ? String(row[6]) : '';
+        if (existingDate && existingFixedId) {
+          existingSet.add(`${existingDate}#${existingFixedId}`);
+        }
+      }
+
+      // Filter out duplicates strictly by (date + fixedExpenseId)
+      const toInsert = generatedExpenses.filter((e) => {
+        const key = e.fixedExpenseId ? `${e.date}#${String(e.fixedExpenseId)}` : null;
+        return key ? !existingSet.has(key) : true;
       });
-      
-      return generatedExpenses;
+
+      const skippedCount = generatedExpenses.length - toInsert.length;
+      logger.info('Deduplication completed (date+fixedExpenseId)', { total: generatedExpenses.length, toInsert: toInsert.length, skipped: skippedCount });
+
+      // Always save to Google Sheets (append to Expenses) if there are items after dedupe
+      let saveResult = null;
+      if (toInsert.length > 0) {
+        logger.info('Saving generated fixed expenses to Google Sheets', { count: toInsert.length });
+        saveResult = await this.addExpensesBulk(toInsert);
+        logger.info('Generated fixed expenses saved successfully');
+      }
+
+      logger.info('Fixed expenses generation finished', { month, count: toInsert.length, skipped: skippedCount });
+      return { items: toInsert, saved: true, saveResult };
     } catch (error) {
       logger.error('Error generating fixed expenses', { month, error: error.message });
       throw error;

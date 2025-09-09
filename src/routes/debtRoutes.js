@@ -1,6 +1,6 @@
 import express from 'express';
-import { getDebts, addDebt, updateDebt, deleteDebt, getDebtSummary, getDebtsSummary } from '../controllers/debtController.js';
-import { createDebtValidator, updateDebtValidator, deleteDebtValidator } from '../validators/debtValidators.js';
+import { getDebts, addDebt, updateDebt, deleteDebt, getDebtSummary, getDebtsSummary, getDebtInstallments } from '../controllers/debtController.js';
+import { createDebtValidator, updateDebtValidator, deleteDebtValidator, getDebtInstallmentsValidator } from '../validators/debtValidators.js';
 import { validate } from '../middleware/validation.js';
 
 const router = express.Router();
@@ -58,6 +58,17 @@ router.get('/:id/summary', getDebtSummary);
  * @access  Public
  */
 router.get('/summary', getDebtsSummary);
+
+/**
+ * @route   GET /api/debts/:id/installments?months=12&start=YYYY-MM-DD
+ * @desc    Get installments plan for a debt
+ * @access  Public
+ */
+router.get('/:id/installments',
+  getDebtInstallmentsValidator,
+  validate,
+  getDebtInstallments
+);
 
 export default router;
 

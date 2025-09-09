@@ -1,4 +1,4 @@
-import { body, param } from 'express-validator';
+import { body, param, query } from 'express-validator';
 
 /**
  * Validation rules for creating debts
@@ -133,6 +133,27 @@ export const deleteDebtValidator = [
   param('id')
     .isString()
     .withMessage('ID must be a string')
+];
+
+/**
+ * Validation rules for getting installments plan
+ */
+export const getDebtInstallmentsValidator = [
+  param('id')
+    .isString()
+    .withMessage('ID must be a string'),
+
+  query('months')
+    .exists()
+    .withMessage('months is required')
+    .bail()
+    .isInt({ min: 1, max: 120 })
+    .withMessage('months must be an integer between 1 and 120'),
+
+  query('start')
+    .optional()
+    .isISO8601({ strict: true })
+    .withMessage('start must be an ISO date (YYYY-MM-DD)')
 ];
 
 

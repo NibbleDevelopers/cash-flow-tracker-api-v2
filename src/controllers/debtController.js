@@ -2,7 +2,7 @@ import GoogleSheetsService from '../services/googleSheetsService.js';
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../config/logger.js';
 import { ApiError } from '../middleware/errorHandler.js';
-import { buildDebtSummary } from '../utils/finance.js';
+import { buildDebtSummary, monthlyRateFromAnnualEffective, interestForMonth, nextDateForDayOfMonth } from '../utils/finance.js';
 
 const sheetsService = new GoogleSheetsService();
 
@@ -206,6 +206,113 @@ export const getDebtsSummary = async (req, res, next) => {
     res.json({ success: true, count: items.length, data: items });
   } catch (error) {
     logger.error('Error in getDebtsSummary controller', { error: error.message });
+    next(error);
+  }
+};
+
+/**
+ * Get installments plan for a debt (id) over N months
+ * Query: months (1-120), start (YYYY-MM-DD optional; defaults to next due date or today)
+ */
+export const getDebtInstallments = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const months = parseInt(req.query.months, 10);
+    const startStr = req.query.start;
+
+    logger.info('GET /api/debts/:id/installments - Calculating installments', { id, months, startStr });
+
+    if (!id || !Number.isFinite(months) || months <= 0) {
+      throw new ApiError(400, 'Invalid parameters');
+    }
+
+    // Load debt rows and find the specific debt
+    const rows = await sheetsService.getDebts();
+    const idx = { id: 0, name: 1, issuer: 2, creditLimit: 3, balance: 4, dueDay: 5, cutOffDay: 6, maskPan: 7, interesEfectivo: 8, brand: 9, active: 10 };
+    const row = rows.slice(1).find(r => String(r[idx.id]) === String(id));
+    if (!row) {
+      throw new ApiError(404, 'Debt not found');
+    }
+    const debt = {
+      id: row[idx.id],
+      name: row[idx.name],
+      issuer: row[idx.issuer],
+      creditLimit: row[idx.creditLimit] ? parseFloat(row[idx.creditLimit]) : 0,
+      balance: row[idx.balance] ? parseFloat(row[idx.balance]) : 0,
+      dueDay: row[idx.dueDay] ? parseInt(row[idx.dueDay], 10) : null,
+      cutOffDay: row[idx.cutOffDay] ? parseInt(row[idx.cutOffDay], 10) : null,
+      interesEfectivo: row[idx.interesEfectivo] ? parseFloat(row[idx.interesEfectivo]) : null,
+      brand: row[idx.brand] || undefined,
+      active: row[idx.active] === 'TRUE'
+    };
+
+    const monthlyRate = debt.interesEfectivo !== null ? monthlyRateFromAnnualEffective(debt.interesEfectivo) : 0;
+    const startDate = startStr ? new Date(startStr) : (debt.dueDay ? nextDateForDayOfMonth(debt.dueDay, new Date()) : new Date());
+
+    // Amortization: equal payments over N months (if rate>0 uses standard annuity formula)
+    const principal = Math.max(0, debt.balance);
+    let payment;
+    if (monthlyRate > 0) {
+      const r = monthlyRate;
+      const n = months;
+      payment = principal * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+    } else {
+      payment = months > 0 ? (principal / months) : principal;
+    }
+
+    const schedule = [];
+    let remaining = principal;
+    const baseYear = startDate.getFullYear();
+    const baseMonth = startDate.getMonth();
+    const targetDay = startDate.getDate();
+    for (let i = 0; i < months; i++) {
+      const y = baseYear;
+      const m = baseMonth + i;
+      const daysInMonth = new Date(y, m + 1, 0).getDate();
+      const day = Math.min(targetDay, daysInMonth);
+      const date = new Date(y, m, day);
+      const interest = interestForMonth(remaining, monthlyRate);
+      let principalPart = payment - interest;
+      if (principalPart < 0) principalPart = 0;
+      if (principalPart > remaining) {
+        principalPart = remaining;
+      }
+      remaining = Math.max(0, remaining - principalPart);
+      schedule.push({
+        period: i + 1,
+        date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`,
+        payment: Number(payment.toFixed(2)),
+        interest: Number(interest.toFixed(2)),
+        principal: Number(principalPart.toFixed(2)),
+        remainingBalance: Number(remaining.toFixed(2))
+      });
+      if (remaining <= 0) break;
+    }
+
+    const totals = schedule.reduce((acc, s) => {
+      acc.totalPaid += s.payment;
+      acc.totalInterest += s.interest;
+      acc.totalPrincipal += s.principal;
+      return acc;
+    }, { totalPaid: 0, totalInterest: 0, totalPrincipal: 0 });
+
+    res.json({
+      success: true,
+      data: {
+        debt: { id: debt.id, name: debt.name, issuer: debt.issuer, balance: principal, interesEfectivo: debt.interesEfectivo },
+        monthlyRate,
+        payment: Number(payment.toFixed(2)),
+        months: schedule.length,
+        schedule,
+        totals: {
+          totalPaid: Number(totals.totalPaid.toFixed(2)),
+          totalInterest: Number(totals.totalInterest.toFixed(2)),
+          totalPrincipal: Number(totals.totalPrincipal.toFixed(2))
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Error in getDebtInstallments controller', { params: req.params, query: req.query, error: error.message });
     next(error);
   }
 };

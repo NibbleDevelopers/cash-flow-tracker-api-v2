@@ -312,17 +312,28 @@ class GoogleSheetsService {
         amount: budget.amount 
       });
 
-      const values = [[
-        budget.month,
-        budget.amount.toString()
-      ]];
+      const values = [[budget.month, budget.amount.toString()]];
 
-      const response = await this.makeRequest('/values/Budget!A:B?valueInputOption=RAW', {
-        method: 'PUT',
-        body: JSON.stringify({ values })
-      });
+      // Find existing row by month in column A
+      const rowNumber = await this.findRowNumberById('Budget', budget.month);
+      let response;
+      if (rowNumber) {
+        // Update existing row A{row}:B{row}
+        logger.info('Updating existing budget row', { month: budget.month, rowNumber });
+        response = await this.makeRequest(`/values/Budget!A${rowNumber}:B${rowNumber}?valueInputOption=RAW`, {
+          method: 'PUT',
+          body: JSON.stringify({ values })
+        });
+      } else {
+        // Append new row at the end
+        logger.info('Appending new budget row', { month: budget.month });
+        response = await this.makeRequest('/values/Budget!A:B:append?valueInputOption=RAW', {
+          method: 'POST',
+          body: JSON.stringify({ values })
+        });
+      }
 
-      logger.info('Budget updated successfully', { month: budget.month });
+      logger.info('Budget upsert successful', { month: budget.month });
       return response;
     } catch (error) {
       logger.error('Error updating budget', { 
@@ -449,6 +460,138 @@ class GoogleSheetsService {
       return response;
     } catch (error) {
       logger.error('Error deleting fixed expense', { id, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Get debts (credit cards) from Google Sheets
+   */
+  async getDebts() {
+    try {
+      logger.info('Fetching debts from Google Sheets');
+      // Columns: A:id, B:name, C:issuer, D:creditLimit, E:balance, F:dueDay, G:cutOffDay, H:maskPan, I:interesEfectivo, J:brand, K:active
+      const response = await this.makeRequest('/values/Debts!A:K');
+      const debts = response.values || [];
+      logger.info('Debts fetched successfully', { count: debts.length });
+      return debts;
+    } catch (error) {
+      logger.error('Error fetching debts', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Add new debt to Google Sheets
+   */
+  async addDebt(debt) {
+    try {
+      logger.info('Adding new debt to Google Sheets', {
+        name: debt.name,
+        issuer: debt.issuer
+      });
+
+      const values = [[
+        debt.id,
+        debt.name,
+        debt.issuer || '',
+        debt.creditLimit !== undefined ? debt.creditLimit.toString() : '',
+        debt.balance !== undefined ? debt.balance.toString() : '',
+        debt.dueDay !== undefined ? debt.dueDay.toString() : '',
+        debt.cutOffDay !== undefined ? debt.cutOffDay.toString() : '',
+        debt.maskPan ? String(debt.maskPan) : '',
+        debt.interesEfectivo !== undefined ? debt.interesEfectivo.toString() : '',
+        debt.brand ? String(debt.brand) : '',
+        debt.active ? 'TRUE' : 'FALSE'
+      ]];
+
+      // Append includes up to column K for brand
+      const response = await this.makeRequest('/values/Debts!A:K:append?valueInputOption=RAW', {
+        method: 'POST',
+        body: JSON.stringify({ values })
+      });
+
+      logger.info('Debt added successfully', { debtId: debt.id });
+      return response;
+    } catch (error) {
+      logger.error('Error adding debt', {
+        name: debt.name,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Update debt in Google Sheets
+   */
+  async updateDebt(debt) {
+    try {
+      logger.info('Updating debt by id in Google Sheets', {
+        id: debt.id,
+        name: debt.name
+      });
+
+      if (!debt.id) {
+        throw new ApiError(400, 'Missing required field: id');
+      }
+
+      const rowNumber = await this.findRowNumberById('Debts', debt.id);
+      if (!rowNumber) {
+        throw new ApiError(404, 'Debt not found');
+      }
+
+      const existingResp = await this.makeRequest(`/values/Debts!A${rowNumber}:K${rowNumber}`);
+      const existing = (existingResp.values && existingResp.values[0]) || [];
+
+      const merged = [
+        debt.id,
+        debt.name !== undefined ? debt.name : (existing[1] || ''),
+        debt.issuer !== undefined ? debt.issuer : (existing[2] || ''),
+        debt.creditLimit !== undefined ? debt.creditLimit.toString() : (existing[3] || ''),
+        debt.balance !== undefined ? debt.balance.toString() : (existing[4] || ''),
+        debt.dueDay !== undefined ? debt.dueDay.toString() : (existing[5] || ''),
+        debt.cutOffDay !== undefined ? debt.cutOffDay.toString() : (existing[6] || ''),
+        debt.maskPan !== undefined ? String(debt.maskPan) : (existing[7] || ''),
+        debt.interesEfectivo !== undefined ? debt.interesEfectivo.toString() : (existing[8] || ''),
+        debt.brand !== undefined ? String(debt.brand) : (existing[9] || ''),
+        debt.active !== undefined ? (debt.active ? 'TRUE' : 'FALSE') : (existing[10] || '')
+      ];
+
+      const response = await this.makeRequest(`/values/Debts!A${rowNumber}:K${rowNumber}?valueInputOption=RAW`, {
+        method: 'PUT',
+        body: JSON.stringify({ values: [merged] })
+      });
+
+      logger.info('Debt updated successfully', { debtId: debt.id, rowNumber });
+      return response;
+    } catch (error) {
+      logger.error('Error updating debt', {
+        id: debt.id,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Delete debt in Google Sheets
+   */
+  async deleteDebt(id) {
+    try {
+      logger.info('Deleting debt in Google Sheets', { id });
+
+      const rowNumber = await this.findRowNumberById('Debts', id);
+      if (!rowNumber) {
+        throw new ApiError(404, 'Debt not found');
+      }
+
+      const response = await this.deleteRowByNumber('Debts', rowNumber);
+
+      logger.info('Debt deleted successfully', { id, rowNumber });
+      return response;
+    } catch (error) {
+      logger.error('Error deleting debt', { id, error: error.message });
       throw error;
     }
   }

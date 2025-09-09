@@ -12,11 +12,12 @@ export const getBudget = async (req, res, next) => {
     logger.info('GET /api/budget - Fetching budget');
     
     const budget = await sheetsService.getBudget();
-    
+    const rows = Array.isArray(budget) ? budget.slice(1) : [];
+
     res.json({
       success: true,
-      data: budget,
-      count: budget.length
+      data: rows,
+      count: rows.length
     });
   } catch (error) {
     logger.error('Error in getBudget controller', { error: error.message });

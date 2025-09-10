@@ -29,12 +29,13 @@ export const getExpenses = async (req, res, next) => {
  */
 export const addExpense = async (req, res, next) => {
   try {
-    const { id, date, description, amount, categoryId, isFixed } = req.body;
+    const { id, date, description, amount, categoryId, isFixed, fixedExpenseId } = req.body;
     
     logger.info('POST /api/expenses - Adding new expense', { 
       description, 
       amount, 
-      categoryId 
+      categoryId,
+      fixedExpenseId 
     });
 
     // Validate required fields
@@ -51,7 +52,8 @@ export const addExpense = async (req, res, next) => {
       description: description.trim(),
       amount: parseFloat(amount),
       categoryId: parseInt(categoryId),
-      isFixed: Boolean(isFixed)
+      isFixed: Boolean(isFixed),
+      fixedExpenseId: fixedExpenseId || null
     };
 
     const result = await sheetsService.addExpense(expense);
@@ -79,7 +81,7 @@ export const addExpense = async (req, res, next) => {
 export const updateExpense = async (req, res, next) => {
   try {
     const { id: idParam } = req.params;
-    const { date, description, amount, categoryId, isFixed } = req.body;
+    const { date, description, amount, categoryId, isFixed, fixedExpenseId } = req.body;
 
     logger.info('PUT /api/expenses - Updating expense', {
       id: idParam,
@@ -96,7 +98,8 @@ export const updateExpense = async (req, res, next) => {
       description: description ? description.trim() : undefined,
       amount: amount !== undefined ? parseFloat(amount) : undefined,
       categoryId: categoryId !== undefined ? parseInt(categoryId) : undefined,
-      isFixed: isFixed !== undefined ? Boolean(isFixed) : undefined
+      isFixed: isFixed !== undefined ? Boolean(isFixed) : undefined,
+      fixedExpenseId: fixedExpenseId !== undefined ? (fixedExpenseId || null) : undefined
     };
 
     const result = await sheetsService.updateExpense(expense);

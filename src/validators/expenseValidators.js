@@ -29,7 +29,17 @@ export const createExpenseValidator = [
   body('isFixed')
     .optional()
     .isBoolean()
-    .withMessage('isFixed must be a boolean')
+    .withMessage('isFixed must be a boolean'),
+    
+  body('fixedExpenseId')
+    .optional()
+    .custom((value) => {
+      if (value === null || value === undefined || value === '') {
+        return true; // Allow null, undefined, or empty string
+      }
+      return typeof value === 'string';
+    })
+    .withMessage('fixedExpenseId must be a string, null, or empty')
 ];
 
 /**
@@ -64,7 +74,17 @@ export const updateExpenseValidator = [
   body('isFixed')
     .optional()
     .isBoolean()
-    .withMessage('isFixed must be a boolean')
+    .withMessage('isFixed must be a boolean'),
+    
+  body('fixedExpenseId')
+    .optional()
+    .custom((value) => {
+      if (value === null || value === undefined || value === '') {
+        return true; // Allow null, undefined, or empty string
+      }
+      return typeof value === 'string';
+    })
+    .withMessage('fixedExpenseId must be a string, null, or empty')
 ];
 
 /**

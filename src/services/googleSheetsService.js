@@ -163,10 +163,11 @@ class GoogleSheetsService {
         expense.description,
         expense.amount.toString(),
         expense.categoryId.toString(),
-        expense.isFixed ? 'TRUE' : 'FALSE'
+        expense.isFixed ? 'TRUE' : 'FALSE',
+        expense.fixedExpenseId ? String(expense.fixedExpenseId) : ''
       ]];
 
-      const response = await this.makeRequest('/values/Expenses!A:F:append?valueInputOption=RAW', {
+      const response = await this.makeRequest('/values/Expenses!A:G:append?valueInputOption=RAW', {
         method: 'POST',
         body: JSON.stringify({ values })
       });
@@ -236,7 +237,7 @@ class GoogleSheetsService {
         throw new ApiError(404, 'Expense not found');
       }
 
-      const existingResp = await this.makeRequest(`/values/Expenses!A${rowNumber}:F${rowNumber}`);
+      const existingResp = await this.makeRequest(`/values/Expenses!A${rowNumber}:G${rowNumber}`);
       const existing = (existingResp.values && existingResp.values[0]) || [];
 
       const merged = [
@@ -245,10 +246,11 @@ class GoogleSheetsService {
         expense.description !== undefined ? expense.description : (existing[2] || ''),
         expense.amount !== undefined ? expense.amount.toString() : (existing[3] || ''),
         expense.categoryId !== undefined ? expense.categoryId.toString() : (existing[4] || ''),
-        expense.isFixed !== undefined ? (expense.isFixed ? 'TRUE' : 'FALSE') : (existing[5] || '')
+        expense.isFixed !== undefined ? (expense.isFixed ? 'TRUE' : 'FALSE') : (existing[5] || ''),
+        expense.fixedExpenseId !== undefined ? (expense.fixedExpenseId ? String(expense.fixedExpenseId) : '') : (existing[6] || '')
       ];
 
-      const response = await this.makeRequest(`/values/Expenses!A${rowNumber}:F${rowNumber}?valueInputOption=RAW`, {
+      const response = await this.makeRequest(`/values/Expenses!A${rowNumber}:G${rowNumber}?valueInputOption=RAW`, {
         method: 'PUT',
         body: JSON.stringify({ values: [merged] })
       });

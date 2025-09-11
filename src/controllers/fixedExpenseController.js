@@ -49,8 +49,8 @@ export const addFixedExpense = async (req, res, next) => {
       id: fixedExpenseId,
       name: name.trim(),
       amount: parseFloat(amount),
-      categoryId: parseInt(categoryId),
-      dayOfMonth: parseInt(dayOfMonth),
+      categoryId: parseInt(categoryId, 10),
+      dayOfMonth: parseInt(dayOfMonth, 10),
       active: Boolean(active)
     };
 
@@ -95,8 +95,8 @@ export const updateFixedExpense = async (req, res, next) => {
       id: idParam,
       name: name ? name.trim() : undefined,
       amount: amount ? parseFloat(amount) : undefined,
-      categoryId: categoryId ? parseInt(categoryId) : undefined,
-      dayOfMonth: dayOfMonth ? parseInt(dayOfMonth) : undefined,
+      categoryId: categoryId ? parseInt(categoryId, 10) : undefined,
+      dayOfMonth: dayOfMonth ? parseInt(dayOfMonth, 10) : undefined,
       active: active !== undefined ? Boolean(active) : undefined
     };
 
@@ -144,6 +144,38 @@ export const deleteFixedExpense = async (req, res, next) => {
     logger.error('Error in deleteFixedExpense controller', {
       body: req.body,
       error: error.message
+    });
+    next(error);
+  }
+};
+
+/**
+ * Generate fixed expenses for a given month (YYYY-MM)
+ */
+export const generateFixedExpenses = async (req, res, next) => {
+  try {
+    const { month } = req.body;
+
+    logger.info('POST /api/generate-fixed-expenses - Generating fixed expenses', { month });
+
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+      throw new ApiError(400, 'Missing or invalid month. Expected format: YYYY-MM');
+    }
+
+    const result = await sheetsService.generateFixedExpensesForMonth(month);
+
+    res.status(201).json({
+      success: true,
+      data: result.items,
+      count: result.items.length,
+      month,
+      saved: true,
+      saveResult: result.saved ? result.saveResult : undefined
+    });
+  } catch (error) {
+    logger.error('Error in generateFixedExpenses controller', { 
+      query: req.query, 
+      error: error.message 
     });
     next(error);
   }

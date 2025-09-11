@@ -1,6 +1,6 @@
 ﻿import express from 'express';
-import { addExpense, getExpenses, updateExpense, deleteExpense } from '../controllers/expenseController.js';
-import { createExpenseValidator, updateExpenseValidator, deleteExpenseValidator } from '../validators/expenseValidators.js';
+import { addExpense, addExpensesBulk, getExpenses, updateExpense, deleteExpense } from '../controllers/expenseController.js';
+import { createExpenseValidator, createExpensesBulkValidator, updateExpenseValidator, deleteExpenseValidator } from '../validators/expenseValidators.js';
 import { validate, validateExpense } from '../middleware/validation.js';
 
 const router = express.Router();
@@ -11,6 +11,17 @@ const router = express.Router();
  * @access  Public
  */
 router.get('/', getExpenses);
+
+/**
+ * @route   POST /api/expenses/batch
+ * @desc    Add multiple expenses
+ * @access  Public
+ */
+router.post('/batch', 
+  createExpensesBulkValidator,
+  validate,
+  addExpensesBulk
+);
 
 /**
  * @route   POST /api/expenses

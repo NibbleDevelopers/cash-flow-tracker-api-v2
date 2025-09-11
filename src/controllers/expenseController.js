@@ -25,16 +25,76 @@ export const getExpenses = async (req, res, next) => {
 };
 
 /**
+ * Add multiple expenses
+ */
+export const addExpensesBulk = async (req, res, next) => {
+  try {
+    const { expenses } = req.body;
+    
+    logger.info('POST /api/expenses/batch - Adding multiple expenses', { 
+      count: expenses ? expenses.length : 0
+    });
+
+    // Validate required fields
+    if (!expenses || !Array.isArray(expenses) || expenses.length === 0) {
+      throw new ApiError(400, 'Missing or invalid expenses array');
+    }
+
+    // Validate each expense in the array
+    const validatedExpenses = expenses.map((expense, index) => {
+      const { id, date, description, amount, categoryId, isFixed, fixedExpenseId } = expense;
+      
+      // Validate required fields for each expense
+      if (!date || !description || !amount || !categoryId) {
+        throw new ApiError(400, `Missing required fields in expense at index ${index}: date, description, amount, categoryId`);
+      }
+
+      // Generate ID if not provided
+      const expenseId = id || Date.now() + Math.random().toString(36).substr(2, 9);
+      
+      return {
+        id: expenseId,
+        date,
+        description: description.trim(),
+        amount: parseFloat(amount),
+        categoryId: parseInt(categoryId),
+        isFixed: Boolean(isFixed),
+        fixedExpenseId: fixedExpenseId || null
+      };
+    });
+
+    const result = await sheetsService.addExpensesBulk(validatedExpenses);
+    
+    logger.info('Multiple expenses added successfully', { count: validatedExpenses.length });
+    
+    res.status(201).json({
+      success: true,
+      message: `${validatedExpenses.length} expenses added successfully`,
+      data: validatedExpenses,
+      count: validatedExpenses.length,
+      result
+    });
+  } catch (error) {
+    logger.error('Error in addExpensesBulk controller', { 
+      body: req.body, 
+      error: error.message 
+    });
+    next(error);
+  }
+};
+
+/**
  * Add new expense
  */
 export const addExpense = async (req, res, next) => {
   try {
-    const { id, date, description, amount, categoryId, isFixed } = req.body;
+    const { id, date, description, amount, categoryId, isFixed, fixedExpenseId } = req.body;
     
     logger.info('POST /api/expenses - Adding new expense', { 
       description, 
       amount, 
-      categoryId 
+      categoryId,
+      fixedExpenseId 
     });
 
     // Validate required fields
@@ -51,7 +111,8 @@ export const addExpense = async (req, res, next) => {
       description: description.trim(),
       amount: parseFloat(amount),
       categoryId: parseInt(categoryId),
-      isFixed: Boolean(isFixed)
+      isFixed: Boolean(isFixed),
+      fixedExpenseId: fixedExpenseId || null
     };
 
     const result = await sheetsService.addExpense(expense);
@@ -79,7 +140,7 @@ export const addExpense = async (req, res, next) => {
 export const updateExpense = async (req, res, next) => {
   try {
     const { id: idParam } = req.params;
-    const { date, description, amount, categoryId, isFixed } = req.body;
+    const { date, description, amount, categoryId, isFixed, fixedExpenseId } = req.body;
 
     logger.info('PUT /api/expenses - Updating expense', {
       id: idParam,
@@ -96,7 +157,8 @@ export const updateExpense = async (req, res, next) => {
       description: description ? description.trim() : undefined,
       amount: amount !== undefined ? parseFloat(amount) : undefined,
       categoryId: categoryId !== undefined ? parseInt(categoryId) : undefined,
-      isFixed: isFixed !== undefined ? Boolean(isFixed) : undefined
+      isFixed: isFixed !== undefined ? Boolean(isFixed) : undefined,
+      fixedExpenseId: fixedExpenseId !== undefined ? (fixedExpenseId || null) : undefined
     };
 
     const result = await sheetsService.updateExpense(expense);

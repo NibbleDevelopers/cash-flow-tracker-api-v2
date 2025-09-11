@@ -21,6 +21,8 @@ import budgetRoutes from './routes/budgetRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
 import expenseRoutes from './routes/expenseRoutes.js';
 import fixedExpenseRoutes from './routes/fixedExpenseRoutes.js';
+import debtRoutes from './routes/debtRoutes.js';
+import generateFixedExpensesRoutes from './routes/generateFixedExpensesRoutes.js';
 
 const app = express();
 
@@ -84,7 +86,9 @@ app.get('/', (req, res) => {
       expenses: '/api/expenses',
       budgets: '/api/budget',
       categories: '/api/categories',
-      fixedExpenses: '/api/fixed-expenses'
+      fixedExpenses: '/api/fixed-expenses',
+      debts: '/api/debts',
+      generateFixedExpenses: '/api/generate-fixed-expenses?month=YYYY-MM'
     },
     documentation: 'https://github.com/tu-usuario/cash-flow-tracker-api'
   });
@@ -105,6 +109,8 @@ app.use('/api/expenses', expenseRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/budget', budgetRoutes);
 app.use('/api/fixed-expenses', fixedExpenseRoutes);
+app.use('/api/debts', debtRoutes);
+app.use('/api/generate-fixed-expenses', generateFixedExpensesRoutes);
 
 // 404 handler
 app.use(notFound);

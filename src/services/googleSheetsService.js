@@ -445,21 +445,84 @@ class GoogleSheetsService {
   }
 
   /**
-   * Delete fixed expense in Google Sheets
+   * Delete fixed expense in Google Sheets with conditional cascading for credit category (ID 7)
    */
   async deleteFixedExpense(id) {
     try {
-      logger.info('Deleting fixed expense in Google Sheets', { id });
+      logger.info('Deleting fixed expense', { id });
 
+      // Get the fixed expense row number
       const rowNumber = await this.findRowNumberById('FixedExpenses', id);
       if (!rowNumber) {
         throw new ApiError(404, 'Fixed expense not found');
       }
 
+      // Get the fixed expense data to check categoryId
+      const fixedExpenseResponse = await this.makeRequest(`/values/FixedExpenses!A${rowNumber}:F${rowNumber}`);
+      const fixedExpenseData = fixedExpenseResponse.values?.[0];
+      
+      if (!fixedExpenseData) {
+        throw new ApiError(404, 'Fixed expense data not found');
+      }
+
+      const categoryId = parseInt(fixedExpenseData[3], 10); // Assuming categoryId is in column D
+      let deletedExpensesCount = 0;
+
+      // If category is credit (ID 7), delete related expenses first
+      if (categoryId === 7) {
+        logger.info('Credit category detected, deleting related expenses', { id });
+        
+        // Get all expenses and find ones with this fixedExpenseId
+        const expensesResponse = await this.makeRequest('/values/Expenses!A:G');
+        const expenses = expensesResponse.values || [];
+        
+        if (expenses.length > 1) {
+          // fixedExpenseId is in column G (index 6) based on the structure: A:G (ID, date, description, amount, categoryId, isFixed, fixedExpenseId)
+          const fixedExpenseIdIndex = 6;
+          const expenseData = expenses.slice(1);
+          const rowsToDelete = [];
+
+          // Find rows to delete - compare with string conversion to handle type differences
+          expenseData.forEach((row, index) => {
+            if (row[fixedExpenseIdIndex] && String(row[fixedExpenseIdIndex]) === String(id)) {
+              rowsToDelete.push(index + 2); // +2 for 0-based index and header
+            }
+          });
+
+          logger.info('Found expenses to delete', { 
+            fixedExpenseId: id, 
+            rowsToDeleteCount: rowsToDelete.length,
+            rowsToDelete: rowsToDelete
+          });
+
+          // Delete from bottom to top to avoid index shifting
+          rowsToDelete.sort((a, b) => b - a);
+          for (const rowNum of rowsToDelete) {
+            try {
+              await this.deleteRowByNumber('Expenses', rowNum);
+              deletedExpensesCount++;
+              logger.info('Deleted related expense', { fixedExpenseId: id, rowNumber: rowNum });
+            } catch (error) {
+              logger.error('Error deleting related expense', { fixedExpenseId: id, rowNumber: rowNum, error: error.message });
+            }
+          }
+        }
+      }
+
+      // Delete the fixed expense itself
       const response = await this.deleteRowByNumber('FixedExpenses', rowNumber);
 
-      logger.info('Fixed expense deleted successfully', { id, rowNumber });
-      return response;
+      logger.info('Fixed expense deleted successfully', { 
+        id, 
+        rowNumber,
+        categoryId,
+        deletedExpensesCount
+      });
+
+      return {
+        fixedExpense: { id, rowNumber, categoryId, response },
+        deletedExpensesCount
+      };
     } catch (error) {
       logger.error('Error deleting fixed expense', { id, error: error.message });
       throw error;

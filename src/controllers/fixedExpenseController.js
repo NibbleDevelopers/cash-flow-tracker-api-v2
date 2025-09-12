@@ -134,15 +134,32 @@ export const deleteFixedExpense = async (req, res, next) => {
 
     const result = await sheetsService.deleteFixedExpense(id);
 
+    // Build response message
+    let message = 'Fixed expense deleted successfully';
+    const categoryId = result.fixedExpense.categoryId;
+    
+    if (categoryId === 7 && result.deletedExpensesCount > 0) {
+      message += `. Also deleted ${result.deletedExpensesCount} related credit payment expense(s)`;
+    } else if (categoryId === 7 && result.deletedExpensesCount === 0) {
+      message += '. No related credit payment expenses found to delete';
+    }
+
     res.json({
       success: true,
-      message: 'Fixed expense deleted successfully',
-      id,
-      result
+      message,
+      data: {
+        fixedExpense: {
+          id,
+          categoryId: categoryId,
+          deleted: true
+        },
+        deletedExpensesCount: result.deletedExpensesCount
+      },
+      result: result.fixedExpense
     });
   } catch (error) {
     logger.error('Error in deleteFixedExpense controller', {
-      body: req.body,
+      params: req.params,
       error: error.message
     });
     next(error);

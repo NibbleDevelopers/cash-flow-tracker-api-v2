@@ -45,7 +45,7 @@ export const addExpensesBulk = async (req, res, next) => {
       const { id, date, description, amount, categoryId, isFixed, fixedExpenseId } = expense;
       
       // Validate required fields for each expense
-      if (!date || !description || !amount || !categoryId) {
+      if (!date || !description || !amount || categoryId === undefined || categoryId === null || categoryId === '') {
         throw new ApiError(400, `Missing required fields in expense at index ${index}: date, description, amount, categoryId`);
       }
 
@@ -98,7 +98,7 @@ export const addExpense = async (req, res, next) => {
     });
 
     // Validate required fields
-    if (!date || !description || !amount || !categoryId) {
+    if (!date || !description || !amount || categoryId === undefined || categoryId === null || categoryId === '') {
       throw new ApiError(400, 'Missing required fields: date, description, amount, categoryId');
     }
 

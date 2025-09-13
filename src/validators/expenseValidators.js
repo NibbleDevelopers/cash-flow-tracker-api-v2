@@ -23,8 +23,8 @@ export const createExpenseValidator = [
     .withMessage('Amount must be a positive number greater than 0'),
     
   body('categoryId')
-    .isInt({ min: 1 })
-    .withMessage('Category ID must be a positive integer'),
+    .isInt({ min: 0 })
+    .withMessage('Category ID must be an integer greater than or equal to 0'),
     
   body('isFixed')
     .optional()
@@ -68,8 +68,8 @@ export const updateExpenseValidator = [
     
   body('categoryId')
     .optional()
-    .isInt({ min: 1 })
-    .withMessage('Category ID must be a positive integer'),
+    .isInt({ min: 0 })
+    .withMessage('Category ID must be an integer greater than or equal to 0'),
     
   body('isFixed')
     .optional()
@@ -114,8 +114,8 @@ export const createExpensesBulkValidator = [
     .withMessage('Each expense amount must be a positive number greater than 0'),
     
   body('expenses.*.categoryId')
-    .isInt({ min: 1 })
-    .withMessage('Each expense category ID must be a positive integer'),
+    .isInt({ min: 0 })
+    .withMessage('Each expense category ID must be an integer greater than or equal to 0'),
     
   body('expenses.*.isFixed')
     .optional()

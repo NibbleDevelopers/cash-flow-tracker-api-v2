@@ -31,7 +31,7 @@ export const validateExpense = [
     }
     
     // Ensure categoryId is a number
-    if (req.body.categoryId) {
+    if (req.body.categoryId !== undefined && req.body.categoryId !== null && req.body.categoryId !== '') {
       req.body.categoryId = parseInt(req.body.categoryId);
     }
     
@@ -73,7 +73,7 @@ export const validateFixedExpense = [
     }
     
     // Ensure categoryId is a number
-    if (req.body.categoryId) {
+    if (req.body.categoryId !== undefined && req.body.categoryId !== null && req.body.categoryId !== '') {
       req.body.categoryId = parseInt(req.body.categoryId);
     }
     

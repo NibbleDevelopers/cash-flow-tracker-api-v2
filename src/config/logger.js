@@ -1,4 +1,5 @@
 ﻿import winston from 'winston';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import config from './config.js';
@@ -44,21 +45,31 @@ transports.push(
   })
 );
 
-// Optionally log to files when explicitly enabled and not on Vercel
+// Optionally log to files when explicitly enabled and not on Vercel/production
 if (shouldUseFileTransports) {
-  transports.push(
-    new winston.transports.File({
-      filename: path.join(__dirname, '../../logs/app.log'),
-      format: logFormat
-    })
-  );
-  transports.push(
-    new winston.transports.File({
-      filename: path.join(__dirname, '../../logs/error.log'),
-      level: 'error',
-      format: logFormat
-    })
-  );
+  const logsDir = path.join(__dirname, '../../logs');
+  try {
+    // Ensure directory exists (may fail on read-only FS like Vercel)
+    fs.mkdirSync(logsDir, { recursive: true });
+
+    transports.push(
+      new winston.transports.File({
+        filename: path.join(logsDir, 'app.log'),
+        format: logFormat
+      })
+    );
+    transports.push(
+      new winston.transports.File({
+        filename: path.join(logsDir, 'error.log'),
+        level: 'error',
+        format: logFormat
+      })
+    );
+  } catch (err) {
+    // Fallback: if we cannot write to disk, skip file transports
+    // eslint-disable-next-line no-console
+    console.warn('File logging disabled: unable to create logs directory.', err);
+  }
 }
 
 // Create logger instance

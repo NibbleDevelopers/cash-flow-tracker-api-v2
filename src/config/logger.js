@@ -29,38 +29,47 @@ const consoleFormat = winston.format.combine(
   })
 );
 
-// Create logger instance
-const logger = winston.createLogger({
-  level: config.logLevel,
-  format: logFormat,
-  defaultMeta: { service: 'cash-flow-tracker-api' },
-  transports: [
-    // Console transport for development
-    new winston.transports.Console({
-      format: consoleFormat
-    }),
-    
-    // File transport for all logs
+// Determine whether to use file transports (disabled on Vercel)
+const isRunningOnVercel = Boolean(process.env.VERCEL);
+const isProduction = config.nodeEnv === 'production';
+const shouldUseFileTransports = process.env.LOG_TO_FILE === 'true' && !isRunningOnVercel && !isProduction;
+
+// Build transports list
+const transports = [];
+
+// Always log to console; pretty in non-production
+transports.push(
+  new winston.transports.Console({
+    format: config.nodeEnv === 'production' ? logFormat : consoleFormat
+  })
+);
+
+// Optionally log to files when explicitly enabled and not on Vercel
+if (shouldUseFileTransports) {
+  transports.push(
     new winston.transports.File({
       filename: path.join(__dirname, '../../logs/app.log'),
       format: logFormat
-    }),
-    
-    // File transport for error logs
+    })
+  );
+  transports.push(
     new winston.transports.File({
       filename: path.join(__dirname, '../../logs/error.log'),
       level: 'error',
       format: logFormat
     })
-  ]
+  );
+}
+
+// Create logger instance
+const logger = winston.createLogger({
+  level: config.logLevel,
+  format: logFormat,
+  defaultMeta: { service: 'cash-flow-tracker-api' },
+  transports
 });
 
-// If we're not in production, log to console as well
-if (config.nodeEnv !== 'production') {
-  logger.add(new winston.transports.Console({
-    format: consoleFormat
-  }));
-}
+// Extra console transport in development is no longer necessary because it's already included above
 
 // Create a stream object for Morgan
 logger.stream = {

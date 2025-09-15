@@ -12,9 +12,8 @@ const sheetsService = new GoogleSheetsService();
 export const getDebts = async (req, res, next) => {
   try {
     logger.info('GET /api/debts - Fetching all debts');
-    const debts = await sheetsService.getDebts();
-    const rows = Array.isArray(debts) ? debts.slice(1) : [];
-    res.json({ success: true, data: rows, count: rows.length });
+    const items = await sheetsService.getDebtsObjects();
+    res.json({ success: true, data: items, count: items.length });
   } catch (error) {
     logger.error('Error in getDebts controller', { error: error.message });
     next(error);

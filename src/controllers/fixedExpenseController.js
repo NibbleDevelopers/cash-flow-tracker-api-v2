@@ -11,7 +11,7 @@ export const getFixedExpenses = async (req, res, next) => {
   try {
     logger.info('GET /api/fixed-expenses - Fetching all fixed expenses');
     
-    const fixedExpenses = await sheetsService.getFixedExpenses();
+    const fixedExpenses = await sheetsService.getFixedExpensesObjects();
     
     res.json({
       success: true,

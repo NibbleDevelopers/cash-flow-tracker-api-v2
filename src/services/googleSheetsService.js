@@ -1,6 +1,7 @@
 ﻿import jwt from 'jsonwebtoken';
 import logger from '../config/logger.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import schemaMappings from '../config/schemaMappings.js';
 /**
  * Service class for Google Sheets operations
  */
@@ -115,17 +116,163 @@ class GoogleSheetsService {
   }
 
   /**
+   * Convert a matrix of values (first row as headers) into an array of objects
+   * Skips completely empty data rows and preserves original header names
+   */
+  mapRowsToObjects(values) {
+    try {
+      if (!Array.isArray(values) || values.length <= 1) {
+        return [];
+      }
+
+      const headers = (values[0] || []).map(h => String(h).trim());
+
+      const items = [];
+      for (const row of values.slice(1)) {
+        const hasAnyValue = Array.isArray(row) && row.some(cell => {
+          return cell !== undefined && cell !== null && String(cell).trim() !== '';
+        });
+        if (!hasAnyValue) continue;
+
+        const obj = {};
+        for (let i = 0; i < headers.length; i++) {
+          const key = headers[i] || `col${i + 1}`;
+          obj[key] = row[i] !== undefined ? row[i] : null;
+        }
+        items.push(obj);
+      }
+
+      return items;
+    } catch (error) {
+      logger.error('Error mapping rows to objects', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Normalize object keys using sheet-specific schema mappings
+   */
+  normalizeKeysForSheet(items, sheetTitle) {
+    try {
+      if (!Array.isArray(items) || items.length === 0) return items;
+      const mapping = schemaMappings[sheetTitle];
+      if (!mapping) return items;
+
+      const normalized = items.map((item) => {
+        const out = {};
+        for (const [rawKey, value] of Object.entries(item)) {
+          const normalizedKey = this.normalizeHeaderKey(rawKey);
+          const canonical = mapping[normalizedKey] || this.toCamelCase(rawKey);
+          if (out[canonical] === undefined) {
+            out[canonical] = value;
+          }
+        }
+        return out;
+      });
+      return normalized;
+    } catch (error) {
+      logger.error('Error normalizing keys for sheet', { sheetTitle, error: error.message });
+      throw error;
+    }
+  }
+
+  normalizeHeaderKey(key) {
+    return String(key)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+  }
+
+  toCamelCase(key) {
+    return String(key)
+      .trim()
+      .replace(/^[^a-zA-Z]+/, '')
+      .replace(/[-_\s]+([a-zA-Z0-9])/g, (_, c) => c.toUpperCase())
+      .replace(/^[A-Z]/, (c) => c.toLowerCase());
+  }
+
+  /**
    * Get categories from Google Sheets
    */
   async getCategories() {
     try {
       logger.info('Fetching categories from Google Sheets');
       const response = await this.makeRequest('/values/Categories!A:D');
-      const categories = response.values || [];
+      const values = response.values || [];
+      const categories = this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Categories');
       logger.info('Categories fetched successfully', { count: categories.length });
       return categories;
     } catch (error) {
       logger.error('Error fetching categories', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Get expenses as array of objects using header row as keys
+   */
+  async getExpensesObjects() {
+    try {
+      logger.info('Fetching expenses (objects) from Google Sheets');
+      const response = await this.makeRequest('/values/Expenses!A:G');
+      const values = response.values || [];
+      const expenses = this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Expenses');
+      logger.info('Expenses (objects) fetched successfully', { count: expenses.length });
+      return expenses;
+    } catch (error) {
+      logger.error('Error fetching expenses (objects)', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Get fixed expenses as array of objects using header row as keys
+   */
+  async getFixedExpensesObjects() {
+    try {
+      logger.info('Fetching fixed expenses (objects) from Google Sheets');
+      const response = await this.makeRequest('/values/FixedExpenses!A:F');
+      const values = response.values || [];
+      const fixedExpenses = this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'FixedExpenses');
+      logger.info('Fixed expenses (objects) fetched successfully', { count: fixedExpenses.length });
+      return fixedExpenses;
+    } catch (error) {
+      logger.error('Error fetching fixed expenses (objects)', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Get budget as array of objects using header row as keys
+   */
+  async getBudgetObjects() {
+    try {
+      logger.info('Fetching budget (objects) from Google Sheets');
+      const response = await this.makeRequest('/values/Budget!A:B');
+      const values = response.values || [];
+      const budget = this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Budget');
+      logger.info('Budget (objects) fetched successfully', { count: budget.length });
+      return budget;
+    } catch (error) {
+      logger.error('Error fetching budget (objects)', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Get debts as array of objects using header row as keys
+   */
+  async getDebtsObjects() {
+    try {
+      logger.info('Fetching debts (objects) from Google Sheets');
+      const response = await this.makeRequest('/values/Debts!A:K');
+      const values = response.values || [];
+      const debts = this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Debts');
+      logger.info('Debts (objects) fetched successfully', { count: debts.length });
+      return debts;
+    } catch (error) {
+      logger.error('Error fetching debts (objects)', { error: error.message });
       throw error;
     }
   }

@@ -11,8 +11,7 @@ export const getBudget = async (req, res, next) => {
   try {
     logger.info('GET /api/budget - Fetching budget');
     
-    const budget = await sheetsService.getBudget();
-    const rows = Array.isArray(budget) ? budget.slice(1) : [];
+    const rows = await sheetsService.getBudgetObjects();
 
     res.json({
       success: true,

@@ -10,8 +10,7 @@ const sheetsService = new GoogleSheetsService();
 export const getExpenses = async (req, res, next) => {
   try {
     logger.info('GET /api/expenses - Fetching all expenses');
-    
-    const expenses = await sheetsService.getExpenses();
+    const expenses = await sheetsService.getExpensesObjects();
     
     res.json({
       success: true,

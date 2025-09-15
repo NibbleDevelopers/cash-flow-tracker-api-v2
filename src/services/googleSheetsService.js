@@ -2,6 +2,7 @@
 import logger from '../config/logger.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import schemaMappings from '../config/schemaMappings.js';
+import schemaTypes from '../config/schemaTypes.js';
 /**
  * Service class for Google Sheets operations
  */
@@ -193,6 +194,66 @@ class GoogleSheetsService {
   }
 
   /**
+   * Coerce values to target types based on sheet schema
+   */
+  coerceTypesForSheet(items, sheetTitle) {
+    try {
+      if (!Array.isArray(items) || items.length === 0) return items;
+      const typeSchema = schemaTypes[sheetTitle];
+      if (!typeSchema) return items;
+
+      const coerce = (value, type) => {
+        if (value === null || value === undefined || value === '') return null;
+        switch (type) {
+          case 'number': {
+            const n = Number(value);
+            return Number.isFinite(n) ? n : null;
+          }
+          case 'boolean': {
+            const v = String(value).trim().toLowerCase();
+            if (v === 'true' || v === '1' || v === 'yes' || v === 'si') return true;
+            if (v === 'false' || v === '0' || v === 'no') return false;
+            return null;
+          }
+          case 'date': {
+            // Accept YYYY-MM-DD or YYYY-MM
+            const s = String(value).trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+            if (/^\d{4}-\d{2}$/.test(s)) return s;
+            // Try parse to ISO date
+            const d = new Date(s);
+            if (!Number.isNaN(d.getTime())) {
+              const yyyy = d.getFullYear();
+              const mm = String(d.getMonth() + 1).padStart(2, '0');
+              const dd = String(d.getDate()).padStart(2, '0');
+              return `${yyyy}-${mm}-${dd}`;
+            }
+            return null;
+          }
+          case 'string':
+          default:
+            return String(value);
+        }
+      };
+
+      return items.map((item) => {
+        const out = { ...item };
+        for (const [key, type] of Object.entries(typeSchema)) {
+          if (Object.prototype.hasOwnProperty.call(out, key)) {
+            out[key] = coerce(out[key], type);
+          } else {
+            out[key] = null;
+          }
+        }
+        return out;
+      });
+    } catch (error) {
+      logger.error('Error coercing types for sheet', { sheetTitle, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
    * Get categories from Google Sheets
    */
   async getCategories() {
@@ -200,7 +261,10 @@ class GoogleSheetsService {
       logger.info('Fetching categories from Google Sheets');
       const response = await this.makeRequest('/values/Categories!A:D');
       const values = response.values || [];
-      const categories = this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Categories');
+      const categories = this.coerceTypesForSheet(
+        this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Categories'),
+        'Categories'
+      );
       logger.info('Categories fetched successfully', { count: categories.length });
       return categories;
     } catch (error) {
@@ -217,7 +281,10 @@ class GoogleSheetsService {
       logger.info('Fetching expenses (objects) from Google Sheets');
       const response = await this.makeRequest('/values/Expenses!A:G');
       const values = response.values || [];
-      const expenses = this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Expenses');
+      const expenses = this.coerceTypesForSheet(
+        this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Expenses'),
+        'Expenses'
+      );
       logger.info('Expenses (objects) fetched successfully', { count: expenses.length });
       return expenses;
     } catch (error) {
@@ -234,7 +301,10 @@ class GoogleSheetsService {
       logger.info('Fetching fixed expenses (objects) from Google Sheets');
       const response = await this.makeRequest('/values/FixedExpenses!A:F');
       const values = response.values || [];
-      const fixedExpenses = this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'FixedExpenses');
+      const fixedExpenses = this.coerceTypesForSheet(
+        this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'FixedExpenses'),
+        'FixedExpenses'
+      );
       logger.info('Fixed expenses (objects) fetched successfully', { count: fixedExpenses.length });
       return fixedExpenses;
     } catch (error) {
@@ -251,7 +321,10 @@ class GoogleSheetsService {
       logger.info('Fetching budget (objects) from Google Sheets');
       const response = await this.makeRequest('/values/Budget!A:B');
       const values = response.values || [];
-      const budget = this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Budget');
+      const budget = this.coerceTypesForSheet(
+        this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Budget'),
+        'Budget'
+      );
       logger.info('Budget (objects) fetched successfully', { count: budget.length });
       return budget;
     } catch (error) {
@@ -268,7 +341,10 @@ class GoogleSheetsService {
       logger.info('Fetching debts (objects) from Google Sheets');
       const response = await this.makeRequest('/values/Debts!A:K');
       const values = response.values || [];
-      const debts = this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Debts');
+      const debts = this.coerceTypesForSheet(
+        this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Debts'),
+        'Debts'
+      );
       logger.info('Debts (objects) fetched successfully', { count: debts.length });
       return debts;
     } catch (error) {

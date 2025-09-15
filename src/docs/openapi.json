@@ -1,0 +1,198 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Cash Flow Tracker API",
+    "version": "1.0.0",
+    "description": "API para gestión de gastos, presupuestos, categorías, gastos fijos y deudas con integración a Google Sheets.",
+    "contact": {
+      "name": "API Support"
+    }
+  },
+  "servers": [
+    { "url": "/" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/categories": {
+      "get": {
+        "summary": "List categories",
+        "responses": {
+          "200": {
+            "description": "Categories list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCategoriesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/expenses": {
+      "get": {
+        "summary": "List expenses",
+        "responses": {
+          "200": {
+            "description": "Expenses list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListExpensesResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create expense",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateExpenseRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "Created" }
+        }
+      }
+    },
+    "/api/expenses/batch": {
+      "post": {
+        "summary": "Create multiple expenses",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateExpensesBulkRequest" } } }
+        },
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/api/expenses/{id}": {
+      "put": {
+        "summary": "Update expense",
+        "parameters": [ { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateExpenseRequest" } } } },
+        "responses": { "200": { "description": "Updated" } }
+      },
+      "delete": {
+        "summary": "Delete expense",
+        "parameters": [ { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } } ],
+        "responses": { "200": { "description": "Deleted" } }
+      }
+    },
+    "/api/fixed-expenses": {
+      "get": { "summary": "List fixed expenses", "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListFixedExpensesResponse" } } } } } },
+      "post": { "summary": "Create fixed expense", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateFixedExpenseRequest" } } } }, "responses": { "201": { "description": "Created" } } }
+    },
+    "/api/fixed-expenses/{id}": {
+      "put": { "summary": "Update fixed expense", "parameters": [ { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateFixedExpenseRequest" } } } }, "responses": { "200": { "description": "Updated" } } },
+      "delete": { "summary": "Delete fixed expense", "parameters": [ { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } } ], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/generate-fixed-expenses": {
+      "post": { "summary": "Generate fixed expenses for a month", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GenerateFixedExpensesRequest" } } } }, "responses": { "201": { "description": "Created" } } }
+    },
+    "/api/budget": {
+      "get": { "summary": "Get budget", "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListBudgetResponse" } } } } } },
+      "put": { "summary": "Update budget", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateBudgetRequest" } } } }, "responses": { "200": { "description": "Updated" } } }
+    },
+    "/api/debts": {
+      "get": { "summary": "List debts", "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListDebtsResponse" } } } } } },
+      "post": { "summary": "Create debt", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateDebtRequest" } } } }, "responses": { "201": { "description": "Created" } } }
+    },
+    "/api/debts/{id}": {
+      "put": { "summary": "Update debt", "parameters": [ { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateDebtRequest" } } } }, "responses": { "200": { "description": "Updated" } } },
+      "delete": { "summary": "Delete debt", "parameters": [ { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } } ], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/debts/{id}/summary": {
+      "get": { "summary": "Debt summary", "parameters": [ { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } } ], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/debts/summary": {
+      "get": { "summary": "All debts summaries", "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/debts/{id}/installments": {
+      "get": { "summary": "Debt installments", "parameters": [ { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }, { "in": "query", "name": "months", "required": true, "schema": { "type": "integer", "minimum": 1 } }, { "in": "query", "name": "start", "required": false, "schema": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" } } ], "responses": { "200": { "description": "OK" } } }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Expense": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "date": { "type": "string", "format": "date" },
+          "description": { "type": "string" },
+          "amount": { "type": "number" },
+          "categoryId": { "type": "integer" },
+          "isFixed": { "type": "boolean" },
+          "fixedExpenseId": { "type": "string", "nullable": true }
+        }
+      },
+      "FixedExpense": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "amount": { "type": "number" },
+          "categoryId": { "type": "integer" },
+          "dayOfMonth": { "type": "integer", "minimum": 1, "maximum": 31 },
+          "active": { "type": "boolean" }
+        }
+      },
+      "BudgetItem": {
+        "type": "object",
+        "properties": {
+          "month": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" },
+          "amount": { "type": "number" }
+        }
+      },
+      "Category": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "parentId": { "type": "string", "nullable": true }
+        }
+      },
+      "Debt": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "issuer": { "type": "string" },
+          "creditLimit": { "type": "number" },
+          "balance": { "type": "number" },
+          "dueDay": { "type": "integer" },
+          "cutOffDay": { "type": "integer" },
+          "maskPan": { "type": "string" },
+          "interesEfectivo": { "type": "number" },
+          "brand": { "type": "string" },
+          "active": { "type": "boolean" }
+        }
+      },
+      "ListExpensesResponse": { "type": "object", "properties": { "success": { "type": "boolean" }, "count": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/Expense" } } } },
+      "CreateExpenseRequest": { "$ref": "#/components/schemas/Expense" },
+      "CreateExpensesBulkRequest": { "type": "object", "properties": { "expenses": { "type": "array", "items": { "$ref": "#/components/schemas/Expense" } } } },
+      "UpdateExpenseRequest": { "$ref": "#/components/schemas/Expense" },
+      "ListFixedExpensesResponse": { "type": "object", "properties": { "success": { "type": "boolean" }, "count": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/FixedExpense" } } } },
+      "CreateFixedExpenseRequest": { "$ref": "#/components/schemas/FixedExpense" },
+      "UpdateFixedExpenseRequest": { "$ref": "#/components/schemas/FixedExpense" },
+      "GenerateFixedExpensesRequest": { "type": "object", "properties": { "month": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" } }, "required": ["month"] },
+      "ListBudgetResponse": { "type": "object", "properties": { "success": { "type": "boolean" }, "count": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/BudgetItem" } } } },
+      "UpdateBudgetRequest": { "$ref": "#/components/schemas/BudgetItem" },
+      "ListCategoriesResponse": { "type": "object", "properties": { "success": { "type": "boolean" }, "count": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/Category" } } } },
+      "ListDebtsResponse": { "type": "object", "properties": { "success": { "type": "boolean" }, "count": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/Debt" } } } }
+    }
+  }
+}
+
+

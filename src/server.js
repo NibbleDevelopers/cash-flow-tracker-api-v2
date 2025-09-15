@@ -11,6 +11,8 @@ import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
+import swaggerUi from 'swagger-ui-express';
+import fs from 'fs';
 
 import config from './config/config.js';
 import logger from './config/logger.js';
@@ -72,6 +74,19 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Logging middleware
 app.use(morgan('combined', { stream: logger.stream }));
 
+// OpenAPI/Swagger docs (only in development or when ENABLE_DOCS=true)
+if (config.nodeEnv === 'development' || config.enableDocs) {
+  try {
+    const openapiPath = path.resolve(__dirname, './docs/openapi.json');
+    const openapiDoc = JSON.parse(fs.readFileSync(openapiPath, 'utf-8'));
+    app.get('/openapi.json', (_req, res) => res.json(openapiDoc));
+    app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiDoc, { explorer: true }));
+    logger.info('Swagger UI mounted at /docs');
+  } catch (e) {
+    logger.error('Failed to load OpenAPI document', { error: e.message });
+  }
+}
+
 // Root endpoint - show API status
 app.get('/', (req, res) => {
   res.json({
@@ -90,7 +105,7 @@ app.get('/', (req, res) => {
       debts: '/api/debts',
       generateFixedExpenses: '/api/generate-fixed-expenses?month=YYYY-MM'
     },
-    documentation: 'https://github.com/tu-usuario/cash-flow-tracker-api'
+    documentation: (config.nodeEnv === 'development' || config.enableDocs) ? '/docs' : undefined
   });
 });
 

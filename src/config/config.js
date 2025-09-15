@@ -38,7 +38,10 @@ const config = {
     abortEarly: false,
     allowUnknown: true,
     stripUnknown: true
-  }
+  },
+
+  // Docs
+  enableDocs: (process.env.ENABLE_DOCS || '').toLowerCase() === 'true'
 };
 
 // Validate required configuration

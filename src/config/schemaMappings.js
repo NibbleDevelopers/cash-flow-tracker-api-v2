@@ -34,7 +34,21 @@ const expenses = {
   isfixed: 'isFixed',
   fixed: 'isFixed',
   gastofijoid: 'fixedExpenseId',
-  fixedexpenseid: 'fixedExpenseId'
+  fixedexpenseid: 'fixedExpenseId',
+  // Debt linkage
+  debtid: 'debtId',
+  deudaid: 'debtId',
+  creditoid: 'debtId',
+  tarjetaid: 'debtId',
+  // Entry type (charge/payment)
+  entrytype: 'entryType',
+  tipoentrada: 'entryType',
+  operacion: 'entryType',
+  operation: 'entryType',
+  movimiento: 'entryType',
+  // Status
+  status: 'status',
+  estado: 'status'
 };
 
 const fixedExpenses = {
@@ -51,7 +65,12 @@ const fixedExpenses = {
   diadelmes: 'dayOfMonth',
   active: 'active',
   activo: 'active',
-  habilitado: 'active'
+  habilitado: 'active',
+  // Optional linkage to a debt for generated expenses
+  debtid: 'debtId',
+  deudaid: 'debtId',
+  creditoid: 'debtId',
+  tarjetaid: 'debtId'
 };
 
 const budget = {

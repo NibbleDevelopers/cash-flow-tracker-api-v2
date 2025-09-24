@@ -279,7 +279,7 @@ class GoogleSheetsService {
   async getExpensesObjects() {
     try {
       logger.info('Fetching expenses (objects) from Google Sheets');
-      const response = await this.makeRequest('/values/Expenses!A:G');
+      const response = await this.makeRequest('/values/Expenses!A:J');
       const values = response.values || [];
       const expenses = this.coerceTypesForSheet(
         this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'Expenses'),
@@ -299,7 +299,7 @@ class GoogleSheetsService {
   async getFixedExpensesObjects() {
     try {
       logger.info('Fetching fixed expenses (objects) from Google Sheets');
-      const response = await this.makeRequest('/values/FixedExpenses!A:F');
+      const response = await this.makeRequest('/values/FixedExpenses!A:G');
       const values = response.values || [];
       const fixedExpenses = this.coerceTypesForSheet(
         this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'FixedExpenses'),
@@ -360,7 +360,7 @@ class GoogleSheetsService {
     try {
       logger.info('Fetching expenses from Google Sheets');
       // Include column G for fixedExpenseId linkage
-      const response = await this.makeRequest('/values/Expenses!A:G');
+      const response = await this.makeRequest('/values/Expenses!A:J');
       const expenses = response.values || [];
       logger.info('Expenses fetched successfully', { count: expenses.length });
       return expenses;
@@ -387,15 +387,38 @@ class GoogleSheetsService {
         expense.amount.toString(),
         expense.categoryId.toString(),
         expense.isFixed ? 'TRUE' : 'FALSE',
-        expense.fixedExpenseId ? String(expense.fixedExpenseId) : ''
+        expense.fixedExpenseId ? String(expense.fixedExpenseId) : '',
+        expense.debtId ? String(expense.debtId) : '',
+        expense.entryType ? String(expense.entryType) : '',
+        expense.status ? String(expense.status) : ''
       ]];
 
-      const response = await this.makeRequest('/values/Expenses!A:G:append?valueInputOption=RAW', {
+      const response = await this.makeRequest('/values/Expenses!A:J:append?valueInputOption=RAW', {
         method: 'POST',
         body: JSON.stringify({ values })
       });
 
       logger.info('Expense added successfully', { expenseId: expense.id });
+
+      // If it's a credit payment already marked as paid, subtract immediately
+      try {
+        const isCredit = Number(expense.categoryId) === 7;
+        const isPayment = String(expense.entryType || '').toLowerCase() === 'payment';
+        const isPaid = String(expense.status || '').toLowerCase() === 'paid';
+        if (isCredit && isPayment && isPaid && expense.debtId) {
+          await this.adjustDebtBalance(String(expense.debtId), -Number(expense.amount));
+          logger.info('Debt balance adjusted on add (paid payment)', { debtId: expense.debtId, amount: expense.amount });
+        }
+        // Charges increase balance immediately regardless of status
+        const isCharge = String(expense.entryType || '').toLowerCase() === 'charge';
+        if (isCredit && isCharge && expense.debtId) {
+          await this.adjustDebtBalance(String(expense.debtId), +Number(expense.amount));
+          logger.info('Debt balance adjusted on add (charge)', { debtId: expense.debtId, amount: expense.amount });
+        }
+      } catch (e) {
+        logger.error('Failed adjusting debt balance on add', { error: e.message });
+      }
+
       return response;
     } catch (error) {
       logger.error('Error adding expense', { 
@@ -421,16 +444,39 @@ class GoogleSheetsService {
         expense.amount.toString(),
         expense.categoryId.toString(),
         expense.isFixed ? 'TRUE' : 'FALSE',
-        expense.fixedExpenseId ? String(expense.fixedExpenseId) : ''
+        expense.fixedExpenseId ? String(expense.fixedExpenseId) : '',
+        expense.debtId ? String(expense.debtId) : '',
+        expense.entryType ? String(expense.entryType) : '',
+        expense.status ? String(expense.status) : ''
       ]);
   
       // Llama a la API una sola vez para agregar todas las filas
-      const response = await this.makeRequest('/values/Expenses!A:G:append?valueInputOption=RAW', {
+      const response = await this.makeRequest('/values/Expenses!A:J:append?valueInputOption=RAW', {
         method: 'POST',
         body: JSON.stringify({ values })
       });
   
       logger.info('Multiple expenses added successfully', { count: expenses.length });
+      // Apply immediate adjustments for paid payments on credit
+      for (const e of expenses) {
+        try {
+          const isCredit = Number(e.categoryId) === 7;
+          const isPayment = String(e.entryType || '').toLowerCase() === 'payment';
+          const isPaid = String(e.status || '').toLowerCase() === 'paid';
+          if (isCredit && isPayment && isPaid && e.debtId) {
+            await this.adjustDebtBalance(String(e.debtId), -Number(e.amount));
+            logger.info('Debt balance adjusted on bulk add (paid payment)', { debtId: e.debtId, amount: e.amount });
+          }
+          // Charges: increase balance immediately
+          const isCharge = String(e.entryType || '').toLowerCase() === 'charge';
+          if (isCredit && isCharge && e.debtId) {
+            await this.adjustDebtBalance(String(e.debtId), +Number(e.amount));
+            logger.info('Debt balance adjusted on bulk add (charge)', { debtId: e.debtId, amount: e.amount });
+          }
+        } catch (e2) {
+          logger.error('Failed adjusting debt balance on bulk add', { error: e2.message });
+        }
+      }
       return response;
     } catch (error) {
       logger.error('Error adding multiple expenses', { 
@@ -460,7 +506,7 @@ class GoogleSheetsService {
         throw new ApiError(404, 'Expense not found');
       }
 
-      const existingResp = await this.makeRequest(`/values/Expenses!A${rowNumber}:G${rowNumber}`);
+      const existingResp = await this.makeRequest(`/values/Expenses!A${rowNumber}:J${rowNumber}`);
       const existing = (existingResp.values && existingResp.values[0]) || [];
 
       const merged = [
@@ -470,15 +516,90 @@ class GoogleSheetsService {
         expense.amount !== undefined ? expense.amount.toString() : (existing[3] || ''),
         expense.categoryId !== undefined ? expense.categoryId.toString() : (existing[4] || ''),
         expense.isFixed !== undefined ? (expense.isFixed ? 'TRUE' : 'FALSE') : (existing[5] || ''),
-        expense.fixedExpenseId !== undefined ? (expense.fixedExpenseId ? String(expense.fixedExpenseId) : '') : (existing[6] || '')
+        expense.fixedExpenseId !== undefined ? (expense.fixedExpenseId ? String(expense.fixedExpenseId) : '') : (existing[6] || ''),
+        expense.debtId !== undefined ? (expense.debtId ? String(expense.debtId) : '') : (existing[7] || ''),
+        expense.entryType !== undefined ? (expense.entryType ? String(expense.entryType) : '') : (existing[8] || ''),
+        expense.status !== undefined ? (expense.status ? String(expense.status) : '') : (existing[9] || '')
       ];
 
-      const response = await this.makeRequest(`/values/Expenses!A${rowNumber}:G${rowNumber}?valueInputOption=RAW`, {
+      const response = await this.makeRequest(`/values/Expenses!A${rowNumber}:J${rowNumber}?valueInputOption=RAW`, {
         method: 'PUT',
         body: JSON.stringify({ values: [merged] })
       });
 
       logger.info('Expense updated successfully', { expenseId: expense.id, rowNumber });
+      // Comprehensive balance adjustment logic for credit entries (payments and charges)
+      try {
+        const prevCategoryId = existing[4] !== undefined && existing[4] !== null && existing[4] !== '' ? Number(existing[4]) : null;
+        const prevAmount = existing[3] !== undefined ? Number(existing[3]) : 0;
+        const prevStatus = String(existing[9] || '').toLowerCase();
+        const prevEntryType = String(existing[8] || '').toLowerCase();
+        const prevDebtId = existing[7] ? String(existing[7]) : null;
+
+        const nextCategoryId = merged[4] !== undefined && merged[4] !== null && merged[4] !== '' ? Number(merged[4]) : null;
+        const nextAmount = merged[3] !== undefined ? Number(merged[3]) : 0;
+        const nextStatus = String(merged[9] || '').toLowerCase();
+        const nextEntryType = String(merged[8] || '').toLowerCase();
+        const nextDebtId = merged[7] ? String(merged[7]) : null;
+
+        // Payments: subtract on paid
+        const wasPaid = prevCategoryId === 7 && prevEntryType === 'payment' && prevStatus === 'paid' && !!prevDebtId;
+        const isPaid = nextCategoryId === 7 && nextEntryType === 'payment' && nextStatus === 'paid' && !!nextDebtId;
+
+        // Charges: add immediately (ignore status)
+        const wasCharge = prevCategoryId === 7 && prevEntryType === 'charge' && !!prevDebtId;
+        const isCharge = nextCategoryId === 7 && nextEntryType === 'charge' && !!nextDebtId;
+
+        if (!wasPaid && isPaid) {
+          // Newly paid -> subtract full nextAmount from nextDebtId
+          await this.adjustDebtBalance(nextDebtId, -nextAmount);
+          logger.info('Debt balance adjusted (became paid)', { debtId: nextDebtId, amount: nextAmount });
+        } else if (wasPaid && !isPaid) {
+          // No longer paid -> add back previous amount to previous debt
+          await this.adjustDebtBalance(prevDebtId, +prevAmount);
+          logger.info('Debt balance reverted (left paid state)', { debtId: prevDebtId, amount: prevAmount });
+        } else if (wasPaid && isPaid) {
+          if (prevDebtId === nextDebtId) {
+            // Same debt, adjust difference
+            const delta = -(nextAmount - prevAmount);
+            if (delta !== 0) {
+              await this.adjustDebtBalance(nextDebtId, delta);
+              logger.info('Debt balance adjusted (amount change while paid)', { debtId: nextDebtId, delta });
+            }
+          } else {
+            // Debt changed: revert old, apply new
+            await this.adjustDebtBalance(prevDebtId, +prevAmount);
+            await this.adjustDebtBalance(nextDebtId, -nextAmount);
+            logger.info('Debt balance adjusted (debtId changed while paid)', { fromDebt: prevDebtId, toDebt: nextDebtId, revert: prevAmount, apply: nextAmount });
+          }
+        }
+
+        // Handle charges
+        if (!wasCharge && isCharge) {
+          // Became charge -> add nextAmount
+          await this.adjustDebtBalance(nextDebtId, +nextAmount);
+          logger.info('Debt balance adjusted (became charge)', { debtId: nextDebtId, amount: nextAmount });
+        } else if (wasCharge && !isCharge) {
+          // No longer charge -> remove previous charge
+          await this.adjustDebtBalance(prevDebtId, -prevAmount);
+          logger.info('Debt balance reverted (left charge state)', { debtId: prevDebtId, amount: prevAmount });
+        } else if (wasCharge && isCharge) {
+          if (prevDebtId === nextDebtId) {
+            const delta = +(nextAmount - prevAmount);
+            if (delta !== 0) {
+              await this.adjustDebtBalance(nextDebtId, delta);
+              logger.info('Debt balance adjusted (amount change while charge)', { debtId: nextDebtId, delta });
+            }
+          } else {
+            await this.adjustDebtBalance(prevDebtId, -prevAmount);
+            await this.adjustDebtBalance(nextDebtId, +nextAmount);
+            logger.info('Debt balance adjusted (debtId changed while charge)', { fromDebt: prevDebtId, toDebt: nextDebtId, revert: prevAmount, apply: nextAmount });
+          }
+        }
+      } catch (e) {
+        logger.error('Failed adjusting debt balance on update', { error: e.message });
+      }
+
       return response;
     } catch (error) {
       logger.error('Error updating expense', {
@@ -501,10 +622,37 @@ class GoogleSheetsService {
         throw new ApiError(404, 'Expense not found');
       }
 
-      const response = await this.deleteRowByNumber('Expenses', rowNumber);
+      // Read existing row before deletion to revert if needed
+      const existingResp = await this.makeRequest(`/values/Expenses!A${rowNumber}:J${rowNumber}`);
+      const existing = (existingResp.values && existingResp.values[0]) || [];
+
+      const resp = await this.deleteRowByNumber('Expenses', rowNumber);
+
+      try {
+        const categoryId = existing[4] !== undefined && existing[4] !== null && existing[4] !== '' ? Number(existing[4]) : null;
+        const amount = existing[3] !== undefined ? Number(existing[3]) : 0;
+        const status = String(existing[9] || '').toLowerCase();
+        const entryType = String(existing[8] || '').toLowerCase();
+        const debtId = existing[7] ? String(existing[7]) : null;
+
+        if (categoryId === 7 && !!debtId) {
+          if (entryType === 'payment' && status === 'paid') {
+            // Deleting a paid payment -> add it back
+            await this.adjustDebtBalance(debtId, +amount);
+            logger.info('Debt balance reverted on delete (paid payment)', { debtId, amount });
+          }
+          if (entryType === 'charge') {
+            // Deleting a charge -> remove it from balance
+            await this.adjustDebtBalance(debtId, -amount);
+            logger.info('Debt balance adjusted on delete (charge removed)', { debtId, amount });
+          }
+        }
+      } catch (e) {
+        logger.error('Failed adjusting debt balance on delete', { error: e.message });
+      }
 
       logger.info('Expense deleted successfully', { id, rowNumber });
-      return response;
+      return resp;
     } catch (error) {
       logger.error('Error deleting expense', { id, error: error.message });
       throw error;
@@ -601,10 +749,11 @@ class GoogleSheetsService {
         fixedExpense.amount.toString(),
         fixedExpense.categoryId.toString(),
         fixedExpense.dayOfMonth.toString(),
-        fixedExpense.active ? 'TRUE' : 'FALSE'
+        fixedExpense.active ? 'TRUE' : 'FALSE',
+        fixedExpense.debtId ? String(fixedExpense.debtId) : ''
       ]];
 
-      const response = await this.makeRequest('/values/FixedExpenses!A:F:append?valueInputOption=RAW', {
+      const response = await this.makeRequest('/values/FixedExpenses!A:G:append?valueInputOption=RAW', {
         method: 'POST',
         body: JSON.stringify({ values })
       });
@@ -639,7 +788,7 @@ class GoogleSheetsService {
         throw new ApiError(404, 'Fixed expense not found');
       }
 
-      const existingResp = await this.makeRequest(`/values/FixedExpenses!A${rowNumber}:F${rowNumber}`);
+      const existingResp = await this.makeRequest(`/values/FixedExpenses!A${rowNumber}:G${rowNumber}`);
       const existing = (existingResp.values && existingResp.values[0]) || [];
 
       const merged = [
@@ -648,10 +797,11 @@ class GoogleSheetsService {
         fixedExpense.amount !== undefined ? fixedExpense.amount.toString() : (existing[2] || ''),
         fixedExpense.categoryId !== undefined ? fixedExpense.categoryId.toString() : (existing[3] || ''),
         fixedExpense.dayOfMonth !== undefined ? fixedExpense.dayOfMonth.toString() : (existing[4] || ''),
-        fixedExpense.active !== undefined ? (fixedExpense.active ? 'TRUE' : 'FALSE') : (existing[5] || '')
+        fixedExpense.active !== undefined ? (fixedExpense.active ? 'TRUE' : 'FALSE') : (existing[5] || ''),
+        fixedExpense.debtId !== undefined ? (fixedExpense.debtId ? String(fixedExpense.debtId) : '') : (existing[6] || '')
       ];
 
-      const response = await this.makeRequest(`/values/FixedExpenses!A${rowNumber}:F${rowNumber}?valueInputOption=RAW`, {
+      const response = await this.makeRequest(`/values/FixedExpenses!A${rowNumber}:G${rowNumber}?valueInputOption=RAW`, {
         method: 'PUT',
         body: JSON.stringify({ values: [merged] })
       });
@@ -681,7 +831,7 @@ class GoogleSheetsService {
       }
 
       // Get the fixed expense data to check categoryId
-      const fixedExpenseResponse = await this.makeRequest(`/values/FixedExpenses!A${rowNumber}:F${rowNumber}`);
+      const fixedExpenseResponse = await this.makeRequest(`/values/FixedExpenses!A${rowNumber}:G${rowNumber}`);
       const fixedExpenseData = fixedExpenseResponse.values?.[0];
       
       if (!fixedExpenseData) {
@@ -696,11 +846,11 @@ class GoogleSheetsService {
         logger.info('Credit category detected, deleting related expenses', { id });
         
         // Get all expenses and find ones with this fixedExpenseId
-        const expensesResponse = await this.makeRequest('/values/Expenses!A:G');
+        const expensesResponse = await this.makeRequest('/values/Expenses!A:J');
         const expenses = expensesResponse.values || [];
         
         if (expenses.length > 1) {
-          // fixedExpenseId is in column G (index 6) based on the structure: A:G (ID, date, description, amount, categoryId, isFixed, fixedExpenseId)
+          // fixedExpenseId is in column G (index 6) based on the structure: A:J (ID, date, description, amount, categoryId, isFixed, fixedExpenseId, debtId, entryType, status)
           const fixedExpenseIdIndex = 6;
           const expenseData = expenses.slice(1);
           const rowsToDelete = [];
@@ -863,6 +1013,34 @@ class GoogleSheetsService {
   }
 
   /**
+   * Adjust a debt balance by a delta (can be positive or negative)
+   */
+  async adjustDebtBalance(debtId, delta) {
+    try {
+      if (!debtId || !Number.isFinite(Number(delta))) {
+        throw new ApiError(400, 'Invalid parameters for adjustDebtBalance');
+      }
+
+      const rowNumber = await this.findRowNumberById('Debts', debtId);
+      if (!rowNumber) {
+        throw new ApiError(404, 'Debt not found');
+      }
+
+      const existingResp = await this.makeRequest(`/values/Debts!A${rowNumber}:K${rowNumber}`);
+      const existing = (existingResp.values && existingResp.values[0]) || [];
+      const currentBalance = parseFloat(existing[4] || '0') || 0;
+      const newBalance = currentBalance + Number(delta);
+
+      await this.updateDebt({ id: debtId, balance: newBalance });
+      logger.info('Debt balance adjusted', { debtId, delta, from: currentBalance, to: newBalance });
+      return newBalance;
+    } catch (error) {
+      logger.error('Error adjusting debt balance', { debtId, delta, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
    * Delete debt in Google Sheets
    */
   async deleteDebt(id) {
@@ -1012,6 +1190,7 @@ class GoogleSheetsService {
           const dateStr = `${yyyy}-${mm}-${dd}`;
 
           
+          const entryType = parseInt(fixedExpense[3]) === 7 ? 'payment' : '';
           generatedExpenses.push({
             id: Date.now() + Math.random().toString(36).slice(2, 11),
             date: dateStr,
@@ -1019,7 +1198,10 @@ class GoogleSheetsService {
             amount: parseFloat(fixedExpense[2]),
             categoryId: parseInt(fixedExpense[3]),
             isFixed: true,
-            fixedExpenseId: fixedExpense[0]
+            fixedExpenseId: fixedExpense[0],
+            debtId: fixedExpense[6] ? String(fixedExpense[6]) : null,
+            entryType: entryType || null,
+            status: 'pending'
           });
         }
       }

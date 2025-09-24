@@ -39,7 +39,44 @@ export const createExpenseValidator = [
       }
       return typeof value === 'string';
     })
-    .withMessage('fixedExpenseId must be a string, null, or empty')
+    .withMessage('fixedExpenseId must be a string, null, or empty'),
+
+  // New fields
+  body('status')
+    .optional()
+    .isIn(['pending', 'paid', 'cancelled', 'skipped', 'overdue'])
+    .withMessage('status must be one of: pending, paid, cancelled, skipped, overdue'),
+
+  body('entryType')
+    .optional()
+    .isIn(['charge', 'payment'])
+    .withMessage('entryType must be one of: charge, payment'),
+
+  body('debtId')
+    .optional()
+    .custom((value) => {
+      if (value === null || value === undefined || value === '') {
+        return true;
+      }
+      return typeof value === 'string';
+    })
+    .withMessage('debtId must be a string, null, or empty'),
+
+  // Conditional requirements for credit category (7)
+  body('entryType').custom((value, { req }) => {
+    const isCreditCategory = Number.parseInt(req.body.categoryId, 10) === 7;
+    if (isCreditCategory && !value) {
+      throw new Error('entryType is required when categoryId is 7');
+    }
+    return true;
+  }),
+  body('debtId').custom((value, { req }) => {
+    const isCreditCategory = Number.parseInt(req.body.categoryId, 10) === 7;
+    if (isCreditCategory && !value) {
+      throw new Error('debtId is required when categoryId is 7');
+    }
+    return true;
+  })
 ];
 
 /**
@@ -84,7 +121,44 @@ export const updateExpenseValidator = [
       }
       return typeof value === 'string';
     })
-    .withMessage('fixedExpenseId must be a string, null, or empty')
+    .withMessage('fixedExpenseId must be a string, null, or empty'),
+
+  // New optional fields
+  body('status')
+    .optional()
+    .isIn(['pending', 'paid', 'cancelled', 'skipped', 'overdue'])
+    .withMessage('status must be one of: pending, paid, cancelled, skipped, overdue'),
+  body('entryType')
+    .optional()
+    .isIn(['charge', 'payment'])
+    .withMessage('entryType must be one of: charge, payment'),
+  body('debtId')
+    .optional()
+    .custom((value) => {
+      if (value === null || value === undefined || value === '') {
+        return true;
+      }
+      return typeof value === 'string';
+    })
+    .withMessage('debtId must be a string, null, or empty'),
+
+  // Conditional check if categoryId (current or updated) is 7
+  body('debtId').custom((value, { req }) => {
+    const categoryId = req.body.categoryId !== undefined ? Number.parseInt(req.body.categoryId, 10) : undefined;
+    const isCreditCategory = categoryId === 7;
+    if (isCreditCategory && !value) {
+      throw new Error('debtId is required when categoryId is 7');
+    }
+    return true;
+  }),
+  body('entryType').custom((value, { req }) => {
+    const categoryId = req.body.categoryId !== undefined ? Number.parseInt(req.body.categoryId, 10) : undefined;
+    const isCreditCategory = categoryId === 7;
+    if (isCreditCategory && !value) {
+      throw new Error('entryType is required when categoryId is 7');
+    }
+    return true;
+  })
 ];
 
 /**
@@ -130,7 +204,48 @@ export const createExpensesBulkValidator = [
       }
       return typeof value === 'string';
     })
-    .withMessage('Each expense fixedExpenseId must be a string, null, or empty')
+    .withMessage('Each expense fixedExpenseId must be a string, null, or empty'),
+
+  // New optional fields per expense
+  body('expenses.*.status')
+    .optional()
+    .isIn(['pending', 'paid', 'cancelled', 'skipped', 'overdue'])
+    .withMessage('Each status must be one of: pending, paid, cancelled, skipped, overdue'),
+  body('expenses.*.entryType')
+    .optional()
+    .isIn(['charge', 'payment'])
+    .withMessage('Each entryType must be one of: charge, payment'),
+  body('expenses.*.debtId')
+    .optional()
+    .custom((value) => {
+      if (value === null || value === undefined || value === '') {
+        return true;
+      }
+      return typeof value === 'string';
+    })
+    .withMessage('Each debtId must be a string, null, or empty'),
+
+  // Conditional per item
+  body('expenses')
+    .custom((expenses) => {
+      if (!Array.isArray(expenses)) return true;
+      for (let i = 0; i < expenses.length; i++) {
+        const item = expenses[i];
+        const isCreditCategory = Number.parseInt(item.categoryId, 10) === 7;
+        if (isCreditCategory) {
+          if (!item.debtId) {
+            throw new Error(`debtId is required when categoryId is 7 at index ${i}`);
+          }
+          if (!item.entryType) {
+            throw new Error(`entryType is required when categoryId is 7 at index ${i}`);
+          }
+          if (!['charge', 'payment'].includes(item.entryType)) {
+            throw new Error(`entryType must be charge or payment at index ${i}`);
+          }
+        }
+      }
+      return true;
+    })
 ];
 
 /**

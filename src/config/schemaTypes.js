@@ -15,7 +15,10 @@ const Expenses = {
   amount: 'number',
   categoryId: 'number',
   isFixed: 'boolean',
-  fixedExpenseId: 'string'
+  fixedExpenseId: 'string',
+  debtId: 'string',
+  entryType: 'string',
+  status: 'string'
 };
 
 const FixedExpenses = {
@@ -24,7 +27,8 @@ const FixedExpenses = {
   amount: 'number',
   categoryId: 'number',
   dayOfMonth: 'number',
-  active: 'boolean'
+  active: 'boolean',
+  debtId: 'string'
 };
 
 const Budget = {

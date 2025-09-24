@@ -41,7 +41,7 @@ export const addExpensesBulk = async (req, res, next) => {
 
     // Validate each expense in the array
     const validatedExpenses = expenses.map((expense, index) => {
-      const { id, date, description, amount, categoryId, isFixed, fixedExpenseId } = expense;
+      const { id, date, description, amount, categoryId, isFixed, fixedExpenseId, debtId, entryType, status } = expense;
       
       // Validate required fields for each expense
       if (!date || !description || !amount || categoryId === undefined || categoryId === null || categoryId === '') {
@@ -58,7 +58,10 @@ export const addExpensesBulk = async (req, res, next) => {
         amount: parseFloat(amount),
         categoryId: parseInt(categoryId),
         isFixed: Boolean(isFixed),
-        fixedExpenseId: fixedExpenseId || null
+        fixedExpenseId: fixedExpenseId || null,
+        debtId: debtId || null,
+        entryType: entryType ? String(entryType).toLowerCase() : null,
+        status: status ? String(status).toLowerCase() : 'pending'
       };
     });
 
@@ -87,7 +90,7 @@ export const addExpensesBulk = async (req, res, next) => {
  */
 export const addExpense = async (req, res, next) => {
   try {
-    const { id, date, description, amount, categoryId, isFixed, fixedExpenseId } = req.body;
+    const { id, date, description, amount, categoryId, isFixed, fixedExpenseId, debtId, entryType, status } = req.body;
     
     logger.info('POST /api/expenses - Adding new expense', { 
       description, 
@@ -111,7 +114,10 @@ export const addExpense = async (req, res, next) => {
       amount: parseFloat(amount),
       categoryId: parseInt(categoryId),
       isFixed: Boolean(isFixed),
-      fixedExpenseId: fixedExpenseId || null
+      fixedExpenseId: fixedExpenseId || null,
+      debtId: debtId || null,
+      entryType: entryType ? String(entryType).toLowerCase() : null,
+      status: status ? String(status).toLowerCase() : 'pending'
     };
 
     const result = await sheetsService.addExpense(expense);
@@ -139,7 +145,7 @@ export const addExpense = async (req, res, next) => {
 export const updateExpense = async (req, res, next) => {
   try {
     const { id: idParam } = req.params;
-    const { date, description, amount, categoryId, isFixed, fixedExpenseId } = req.body;
+    const { date, description, amount, categoryId, isFixed, fixedExpenseId, debtId, entryType, status } = req.body;
 
     logger.info('PUT /api/expenses - Updating expense', {
       id: idParam,
@@ -157,7 +163,10 @@ export const updateExpense = async (req, res, next) => {
       amount: amount !== undefined ? parseFloat(amount) : undefined,
       categoryId: categoryId !== undefined ? parseInt(categoryId) : undefined,
       isFixed: isFixed !== undefined ? Boolean(isFixed) : undefined,
-      fixedExpenseId: fixedExpenseId !== undefined ? (fixedExpenseId || null) : undefined
+      fixedExpenseId: fixedExpenseId !== undefined ? (fixedExpenseId || null) : undefined,
+      debtId: debtId !== undefined ? (debtId || null) : undefined,
+      entryType: entryType !== undefined ? (entryType ? String(entryType).toLowerCase() : null) : undefined,
+      status: status !== undefined ? (status ? String(status).toLowerCase() : null) : undefined
     };
 
     const result = await sheetsService.updateExpense(expense);

@@ -51,7 +51,8 @@ export const addFixedExpense = async (req, res, next) => {
       amount: parseFloat(amount),
       categoryId: parseInt(categoryId, 10),
       dayOfMonth: parseInt(dayOfMonth, 10),
-      active: Boolean(active)
+      active: Boolean(active),
+      debtId: req.body.debtId || null
     };
 
     const result = await sheetsService.addFixedExpense(fixedExpense);
@@ -97,7 +98,8 @@ export const updateFixedExpense = async (req, res, next) => {
       amount: amount ? parseFloat(amount) : undefined,
       categoryId: categoryId ? parseInt(categoryId, 10) : undefined,
       dayOfMonth: dayOfMonth ? parseInt(dayOfMonth, 10) : undefined,
-      active: active !== undefined ? Boolean(active) : undefined
+      active: active !== undefined ? Boolean(active) : undefined,
+      debtId: req.body.debtId !== undefined ? (req.body.debtId || null) : undefined
     };
 
     const result = await sheetsService.updateFixedExpense(fixedExpense);

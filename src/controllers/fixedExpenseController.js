@@ -139,22 +139,15 @@ export const deleteFixedExpense = async (req, res, next) => {
     // Build response message
     let message = 'Fixed expense deleted successfully';
     const categoryId = result.fixedExpense.categoryId;
-    
-    if (categoryId === 7 && result.deletedExpensesCount > 0) {
-      message += `. Also deleted ${result.deletedExpensesCount} related credit payment expense(s)`;
-    } else if (categoryId === 7 && result.deletedExpensesCount === 0) {
-      message += '. No related credit payment expenses found to delete';
+    if (result.deletedExpensesCount > 0) {
+      message += `. Also deleted ${result.deletedExpensesCount} related expense(s)`;
     }
 
     res.json({
       success: true,
       message,
       data: {
-        fixedExpense: {
-          id,
-          categoryId: categoryId,
-          deleted: true
-        },
+        fixedExpense: { id, categoryId: categoryId, deleted: true },
         deletedExpensesCount: result.deletedExpensesCount
       },
       result: result.fixedExpense

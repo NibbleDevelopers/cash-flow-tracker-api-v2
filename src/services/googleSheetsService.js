@@ -402,7 +402,8 @@ class GoogleSheetsService {
 
       // If it's a credit payment already marked as paid, subtract immediately
       try {
-        const isCredit = Number(expense.categoryId) === 7;
+        // Credit determination is now based on presence of debtId
+        const isCredit = !!expense.debtId;
         const isPayment = String(expense.entryType || '').toLowerCase() === 'payment';
         const isPaid = String(expense.status || '').toLowerCase() === 'paid';
         if (isCredit && isPayment && isPaid && expense.debtId) {
@@ -460,7 +461,8 @@ class GoogleSheetsService {
       // Apply immediate adjustments for paid payments on credit
       for (const e of expenses) {
         try {
-          const isCredit = Number(e.categoryId) === 7;
+          // Credit determination is now based on presence of debtId
+          const isCredit = !!e.debtId;
           const isPayment = String(e.entryType || '').toLowerCase() === 'payment';
           const isPaid = String(e.status || '').toLowerCase() === 'paid';
           if (isCredit && isPayment && isPaid && e.debtId) {
@@ -530,25 +532,22 @@ class GoogleSheetsService {
       logger.info('Expense updated successfully', { expenseId: expense.id, rowNumber });
       // Comprehensive balance adjustment logic for credit entries (payments and charges)
       try {
-        const prevCategoryId = existing[4] !== undefined && existing[4] !== null && existing[4] !== '' ? Number(existing[4]) : null;
         const prevAmount = existing[3] !== undefined ? Number(existing[3]) : 0;
         const prevStatus = String(existing[9] || '').toLowerCase();
         const prevEntryType = String(existing[8] || '').toLowerCase();
         const prevDebtId = existing[7] ? String(existing[7]) : null;
-
-        const nextCategoryId = merged[4] !== undefined && merged[4] !== null && merged[4] !== '' ? Number(merged[4]) : null;
         const nextAmount = merged[3] !== undefined ? Number(merged[3]) : 0;
         const nextStatus = String(merged[9] || '').toLowerCase();
         const nextEntryType = String(merged[8] || '').toLowerCase();
         const nextDebtId = merged[7] ? String(merged[7]) : null;
 
-        // Payments: subtract on paid
-        const wasPaid = prevCategoryId === 7 && prevEntryType === 'payment' && prevStatus === 'paid' && !!prevDebtId;
-        const isPaid = nextCategoryId === 7 && nextEntryType === 'payment' && nextStatus === 'paid' && !!nextDebtId;
+        // Payments: subtract on paid (now gated by presence of debtId)
+        const wasPaid = !!prevDebtId && prevEntryType === 'payment' && prevStatus === 'paid';
+        const isPaid = !!nextDebtId && nextEntryType === 'payment' && nextStatus === 'paid';
 
-        // Charges: add immediately (ignore status)
-        const wasCharge = prevCategoryId === 7 && prevEntryType === 'charge' && !!prevDebtId;
-        const isCharge = nextCategoryId === 7 && nextEntryType === 'charge' && !!nextDebtId;
+        // Charges: add immediately (ignore status), gated by debtId
+        const wasCharge = !!prevDebtId && prevEntryType === 'charge';
+        const isCharge = !!nextDebtId && nextEntryType === 'charge';
 
         if (!wasPaid && isPaid) {
           // Newly paid -> subtract full nextAmount from nextDebtId
@@ -629,13 +628,11 @@ class GoogleSheetsService {
       const resp = await this.deleteRowByNumber('Expenses', rowNumber);
 
       try {
-        const categoryId = existing[4] !== undefined && existing[4] !== null && existing[4] !== '' ? Number(existing[4]) : null;
         const amount = existing[3] !== undefined ? Number(existing[3]) : 0;
         const status = String(existing[9] || '').toLowerCase();
         const entryType = String(existing[8] || '').toLowerCase();
         const debtId = existing[7] ? String(existing[7]) : null;
-
-        if (categoryId === 7 && !!debtId) {
+        if (!!debtId) {
           if (entryType === 'payment' && status === 'paid') {
             // Deleting a paid payment -> add it back
             await this.adjustDebtBalance(debtId, +amount);
@@ -818,7 +815,7 @@ class GoogleSheetsService {
   }
 
   /**
-   * Delete fixed expense in Google Sheets with conditional cascading for credit category (ID 7)
+   * Delete fixed expense in Google Sheets. Also deletes related expenses linked by fixedExpenseId.
    */
   async deleteFixedExpense(id) {
     try {
@@ -838,46 +835,37 @@ class GoogleSheetsService {
         throw new ApiError(404, 'Fixed expense data not found');
       }
 
-      const categoryId = parseInt(fixedExpenseData[3], 10); // Assuming categoryId is in column D
+      const categoryId = parseInt(fixedExpenseData[3], 10); // Column D
       let deletedExpensesCount = 0;
 
-      // If category is credit (ID 7), delete related expenses first
-      if (categoryId === 7) {
-        logger.info('Credit category detected, deleting related expenses', { id });
-        
-        // Get all expenses and find ones with this fixedExpenseId
-        const expensesResponse = await this.makeRequest('/values/Expenses!A:J');
-        const expenses = expensesResponse.values || [];
-        
-        if (expenses.length > 1) {
-          // fixedExpenseId is in column G (index 6) based on the structure: A:J (ID, date, description, amount, categoryId, isFixed, fixedExpenseId, debtId, entryType, status)
-          const fixedExpenseIdIndex = 6;
-          const expenseData = expenses.slice(1);
-          const rowsToDelete = [];
+      // Delete related expenses by fixedExpenseId regardless of category
+      const expensesResponse = await this.makeRequest('/values/Expenses!A:J');
+      const expenses = expensesResponse.values || [];
+      if (expenses.length > 1) {
+        const fixedExpenseIdIndex = 6; // column G in Expenses
+        const expenseData = expenses.slice(1);
+        const rowsToDelete = [];
 
-          // Find rows to delete - compare with string conversion to handle type differences
-          expenseData.forEach((row, index) => {
-            if (row[fixedExpenseIdIndex] && String(row[fixedExpenseIdIndex]) === String(id)) {
-              rowsToDelete.push(index + 2); // +2 for 0-based index and header
-            }
-          });
+        expenseData.forEach((row, index) => {
+          if (row[fixedExpenseIdIndex] && String(row[fixedExpenseIdIndex]) === String(id)) {
+            rowsToDelete.push(index + 2); // +2 for header offset
+          }
+        });
 
-          logger.info('Found expenses to delete', { 
-            fixedExpenseId: id, 
-            rowsToDeleteCount: rowsToDelete.length,
-            rowsToDelete: rowsToDelete
-          });
+        logger.info('Found expenses to delete', {
+          fixedExpenseId: id,
+          rowsToDeleteCount: rowsToDelete.length,
+          rowsToDelete: rowsToDelete
+        });
 
-          // Delete from bottom to top to avoid index shifting
-          rowsToDelete.sort((a, b) => b - a);
-          for (const rowNum of rowsToDelete) {
-            try {
-              await this.deleteRowByNumber('Expenses', rowNum);
-              deletedExpensesCount++;
-              logger.info('Deleted related expense', { fixedExpenseId: id, rowNumber: rowNum });
-            } catch (error) {
-              logger.error('Error deleting related expense', { fixedExpenseId: id, rowNumber: rowNum, error: error.message });
-            }
+        rowsToDelete.sort((a, b) => b - a);
+        for (const rowNum of rowsToDelete) {
+          try {
+            await this.deleteRowByNumber('Expenses', rowNum);
+            deletedExpensesCount++;
+            logger.info('Deleted related expense', { fixedExpenseId: id, rowNumber: rowNum });
+          } catch (error) {
+            logger.error('Error deleting related expense', { fixedExpenseId: id, rowNumber: rowNum, error: error.message });
           }
         }
       }
@@ -885,12 +873,7 @@ class GoogleSheetsService {
       // Delete the fixed expense itself
       const response = await this.deleteRowByNumber('FixedExpenses', rowNumber);
 
-      logger.info('Fixed expense deleted successfully', { 
-        id, 
-        rowNumber,
-        categoryId,
-        deletedExpensesCount
-      });
+      logger.info('Fixed expense deleted successfully', { id, rowNumber, categoryId, deletedExpensesCount });
 
       return {
         fixedExpense: { id, rowNumber, categoryId, response },
@@ -1190,7 +1173,9 @@ class GoogleSheetsService {
           const dateStr = `${yyyy}-${mm}-${dd}`;
 
           
-          const entryType = parseInt(fixedExpense[3]) === 7 ? 'payment' : '';
+          // Determine entry type based on presence of debtId (no longer tied to category 7)
+          const hasDebt = !!fixedExpense[6];
+          const entryType = hasDebt ? 'payment' : '';
           generatedExpenses.push({
             id: Date.now() + Math.random().toString(36).slice(2, 11),
             date: dateStr,

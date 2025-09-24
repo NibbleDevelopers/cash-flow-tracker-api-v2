@@ -133,7 +133,10 @@
           "amount": { "type": "number" },
           "categoryId": { "type": "integer" },
           "isFixed": { "type": "boolean" },
-          "fixedExpenseId": { "type": "string", "nullable": true }
+          "fixedExpenseId": { "type": "string", "nullable": true },
+          "debtId": { "type": "string", "nullable": true, "description": "If present, expense is credit-related. entryType becomes required." },
+          "entryType": { "type": "string", "nullable": true, "enum": ["charge", "payment"], "description": "Required when debtId is present. Omit otherwise." },
+          "status": { "type": "string", "nullable": true, "enum": ["pending", "paid", "cancelled", "skipped", "overdue"] }
         }
       },
       "FixedExpense": {

@@ -62,18 +62,24 @@ export const createExpenseValidator = [
     })
     .withMessage('debtId must be a string, null, or empty'),
 
-  // Conditional requirements for credit category (7)
+  // New rule: when there is a debtId, entryType is required; otherwise entryType must be absent
   body('entryType').custom((value, { req }) => {
-    const isCreditCategory = Number.parseInt(req.body.categoryId, 10) === 7;
-    if (isCreditCategory && !value) {
-      throw new Error('entryType is required when categoryId is 7');
+    const hasDebt = !!req.body.debtId;
+    if (hasDebt && !value) {
+      throw new Error('entryType is required when debtId is present');
+    }
+    if (!hasDebt && value) {
+      throw new Error('entryType must be omitted when debtId is not present');
     }
     return true;
   }),
+  // New rule: debtId is optional but if present must be string; deprecate coupling to category 7
   body('debtId').custom((value, { req }) => {
-    const isCreditCategory = Number.parseInt(req.body.categoryId, 10) === 7;
-    if (isCreditCategory && !value) {
-      throw new Error('debtId is required when categoryId is 7');
+    const isEmpty = value === null || value === undefined || value === '';
+    if (isEmpty) return true;
+    const valid = typeof value === 'string';
+    if (!valid) {
+      throw new Error('debtId must be a string when provided');
     }
     return true;
   })
@@ -142,20 +148,14 @@ export const updateExpenseValidator = [
     })
     .withMessage('debtId must be a string, null, or empty'),
 
-  // Conditional check if categoryId (current or updated) is 7
-  body('debtId').custom((value, { req }) => {
-    const categoryId = req.body.categoryId !== undefined ? Number.parseInt(req.body.categoryId, 10) : undefined;
-    const isCreditCategory = categoryId === 7;
-    if (isCreditCategory && !value) {
-      throw new Error('debtId is required when categoryId is 7');
-    }
-    return true;
-  }),
+  // New rule for updates: if debtId will be present (either in body or existing), require entryType accordingly
   body('entryType').custom((value, { req }) => {
-    const categoryId = req.body.categoryId !== undefined ? Number.parseInt(req.body.categoryId, 10) : undefined;
-    const isCreditCategory = categoryId === 7;
-    if (isCreditCategory && !value) {
-      throw new Error('entryType is required when categoryId is 7');
+    const hasDebt = req.body.debtId !== undefined ? !!req.body.debtId : false;
+    if (hasDebt && !value) {
+      throw new Error('entryType is required when debtId is present');
+    }
+    if (!hasDebt && value) {
+      throw new Error('entryType must be omitted when debtId is not present');
     }
     return true;
   })
@@ -225,22 +225,23 @@ export const createExpensesBulkValidator = [
     })
     .withMessage('Each debtId must be a string, null, or empty'),
 
-  // Conditional per item
+  // Conditional per item: gate by debtId instead of category 7
   body('expenses')
     .custom((expenses) => {
       if (!Array.isArray(expenses)) return true;
       for (let i = 0; i < expenses.length; i++) {
         const item = expenses[i];
-        const isCreditCategory = Number.parseInt(item.categoryId, 10) === 7;
-        if (isCreditCategory) {
-          if (!item.debtId) {
-            throw new Error(`debtId is required when categoryId is 7 at index ${i}`);
-          }
+        const hasDebt = !!item.debtId;
+        if (hasDebt) {
           if (!item.entryType) {
-            throw new Error(`entryType is required when categoryId is 7 at index ${i}`);
+            throw new Error(`entryType is required when debtId is present at index ${i}`);
           }
           if (!['charge', 'payment'].includes(item.entryType)) {
             throw new Error(`entryType must be charge or payment at index ${i}`);
+          }
+        } else {
+          if (item.entryType) {
+            throw new Error(`entryType must be omitted when debtId is not present at index ${i}`);
           }
         }
       }

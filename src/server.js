@@ -25,6 +25,7 @@ import expenseRoutes from './routes/expenseRoutes.js';
 import fixedExpenseRoutes from './routes/fixedExpenseRoutes.js';
 import debtRoutes from './routes/debtRoutes.js';
 import generateFixedExpensesRoutes from './routes/generateFixedExpensesRoutes.js';
+import metaRoutes from './routes/metaRoutes.js';
 
 const app = express();
 
@@ -126,6 +127,7 @@ app.use('/api/budget', budgetRoutes);
 app.use('/api/fixed-expenses', fixedExpenseRoutes);
 app.use('/api/debts', debtRoutes);
 app.use('/api/generate-fixed-expenses', generateFixedExpensesRoutes);
+app.use('/api/meta', metaRoutes);
 
 // 404 handler
 app.use(notFound);

@@ -173,7 +173,41 @@
           { "in": "query", "name": "date", "required": false, "schema": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" } },
           { "in": "query", "name": "recompute", "required": false, "schema": { "type": "boolean" } }
         ],
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "createdStatement": {
+                    "summary": "Statement created for 2025-08",
+                    "value": {
+                      "success": true,
+                      "idempotency": { "key": "visa-1234|2025-08-22", "status": "created" },
+                      "data": {
+                        "debtId": "visa-1234",
+                        "statementDate": "2025-08-22",
+                        "dueDate": "2025-09-16",
+                        "previousBalance": 315.14,
+                        "charges": 1115.38,
+                        "interests": 0.0,
+                        "payments": 562.67,
+                        "statementBalance": 867.85,
+                        "bonifiableInterest": 20.62,
+                        "installmentBalance": 888.47,
+                        "annualEffectiveRate": 0.441,
+                        "termMonths": null,
+                        "periodDays": 31,
+                        "paymentMade": 0.0,
+                        "interestBreakdown": { "interestSobreSaldo": 0.0, "interestBonificable": 20.62 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/debts/{id}/statement-preview": {
@@ -185,7 +219,63 @@
           { "in": "query", "name": "date", "required": false, "schema": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" } },
           { "in": "query", "name": "recompute", "required": false, "schema": { "type": "boolean" }, "description": "If true, recompute even if stored record exists" }
         ],
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "cached": {
+                    "summary": "Returns stored statement when recompute=false",
+                    "value": {
+                      "success": true,
+                      "cached": true,
+                      "data": {
+                        "debtId": "visa-1234",
+                        "statementDate": "2025-08-22",
+                        "dueDate": "2025-09-16",
+                        "previousBalance": 315.14,
+                        "charges": 1115.38,
+                        "interests": 0.0,
+                        "payments": 562.67,
+                        "statementBalance": 867.85,
+                        "bonifiableInterest": 20.62,
+                        "installmentBalance": 888.47,
+                        "annualEffectiveRate": 0.441,
+                        "termMonths": null,
+                        "periodDays": 31,
+                        "paymentMade": 0.0
+                      }
+                    }
+                  },
+                  "recomputed": {
+                    "summary": "Recompute result when recompute=true",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "debtId": "visa-1234",
+                        "statementDate": "2025-09-22",
+                        "dueDate": "2025-10-16",
+                        "previousBalance": 867.85,
+                        "charges": 250.00,
+                        "interests": 10.12,
+                        "payments": 100.00,
+                        "statementBalance": 1027.97,
+                        "bonifiableInterest": 5.34,
+                        "installmentBalance": 1033.31,
+                        "annualEffectiveRate": 0.441,
+                        "termMonths": null,
+                        "periodDays": 31,
+                        "paymentMade": 0.0,
+                        "interestBreakdown": { "interestSobreSaldo": 10.12, "interestBonificable": 5.34 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   },

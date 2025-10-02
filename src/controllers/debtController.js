@@ -587,7 +587,7 @@ export const getDebtStatementPreview = async (req, res, next) => {
       : new Date(statementDate.getFullYear(), statementDate.getMonth() + 1, 0);
 
     const dueDate = Number.isFinite(debt.dueDay)
-      ? new Date(statementDate.getFullYear(), statementDate.getMonth(), dayClamp(statementDate.getFullYear(), statementDate.getMonth(), debt.dueDay))
+      ? nextDateForDayOfMonth(debt.dueDay, statementDate)
       : new Date(statementDate.getFullYear(), statementDate.getMonth(), dayClamp(statementDate.getFullYear(), statementDate.getMonth(), 25));
 
     // If recompute=false and a record exists for this statementDate, return it directly
@@ -658,7 +658,26 @@ export const getDebtStatementPreview = async (req, res, next) => {
     addSegment(new Date(statementDate.getFullYear(), statementDate.getMonth(), statementDate.getDate()));
     const interestSobreSaldo = Number((nbBalanceDays * ((annualRateUnit || 0)/365)).toFixed(2));
     const interestBonificable = Number((bBalanceDays * ((annualRateUnit || 0)/365)).toFixed(2));
-    const interests = Number(interestSobreSaldo.toFixed(2));
+
+    // Carry-over de intereses bonificables del periodo anterior si no se pagó el total a tiempo
+    let interestCarryOver = 0;
+    if (lastForDebt && Number.isFinite(Number(lastForDebt.bonifiableInterest))) {
+      try {
+        const prevPaid = await sheetsService.sumPaymentsForDebt(
+          id,
+          String(lastForDebt.statementDate),
+          String(lastForDebt.dueDate)
+        );
+        const prevInstallment = Number(lastForDebt.installmentBalance) || 0;
+        if ((Number(prevPaid) || 0) + 0.005 < prevInstallment) {
+          interestCarryOver = Number(lastForDebt.bonifiableInterest) || 0;
+        }
+      } catch (e) {
+        // No bloquear por errores al leer pagos previos
+        interestCarryOver = 0;
+      }
+    }
+    const interests = Number((interestSobreSaldo + interestCarryOver).toFixed(2));
     const bonifiableInterest = Number(interestBonificable.toFixed(2));
     const statementBalance = Number((Math.max(0, previousBalance + charges + interests - payments)).toFixed(2));
     const installmentBalance = Number((statementBalance + bonifiableInterest).toFixed(2));
@@ -678,9 +697,9 @@ export const getDebtStatementPreview = async (req, res, next) => {
         installmentBalance,
         annualEffectiveRate: annualRateUnit,
         termMonths: null,
-        periodDays: Math.round((statementDate - startPeriod)/(1000*60*60*24)),
+        periodDays: daysBetweenDates(new Date(startPeriod.getFullYear(), startPeriod.getMonth(), startPeriod.getDate()), statementDate),
         paymentMade: await sheetsService.sumPaymentsForDebt(id, statementDate.toISOString().slice(0,10), dueDate.toISOString().slice(0,10)),
-        interestBreakdown: { interestSobreSaldo, interestBonificable }
+        interestBreakdown: { interestSobreSaldo, interestBonificable, interestCarryOver }
       }
     });
   } catch (error) {

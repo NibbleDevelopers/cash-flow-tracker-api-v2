@@ -1,6 +1,6 @@
 import express from 'express';
-import { getDebts, addDebt, updateDebt, deleteDebt, getDebtSummary, getDebtsSummary, getDebtInstallments } from '../controllers/debtController.js';
-import { createDebtValidator, updateDebtValidator, deleteDebtValidator, getDebtInstallmentsValidator } from '../validators/debtValidators.js';
+import { getDebts, addDebt, updateDebt, deleteDebt, getDebtSummary, getDebtsSummary, getDebtInstallments, accrueDebt, getDebtStatementPreview } from '../controllers/debtController.js';
+import { createDebtValidator, updateDebtValidator, deleteDebtValidator, getDebtInstallmentsValidator, accrueDebtValidator, accrueDebtPreviewValidator } from '../validators/debtValidators.js';
 import { validate } from '../middleware/validation.js';
 
 const router = express.Router();
@@ -68,6 +68,40 @@ router.get('/:id/installments',
   getDebtInstallmentsValidator,
   validate,
   getDebtInstallments
+);
+
+/**
+* @route   POST /api/debts/:id/accrue?period=YYYY-MM|date=YYYY-MM-DD&dryRun=true|false&recompute=true|false
+* @desc    Accrue interest for a debt for a period and add to balance
+* @access  Public
+*/
+router.post('/:id/accrue',
+  accrueDebtValidator,
+  validate,
+  accrueDebt
+);
+
+/**
+ * @route   POST /api/debts/:id/statements?period=YYYY-MM|date=YYYY-MM-DD&dryRun=true|false&recompute=true|false
+ * @desc    Generate (and optionally persist) a credit statement for the given period
+ * @access  Public
+ * @notes   Alias for /accrue; preferred naming. Keeps backward compatibility.
+ */
+router.post('/:id/statements',
+  accrueDebtValidator,
+  validate,
+  accrueDebt
+);
+
+/**
+ * @route   GET /api/debts/:id/statement-preview?period=YYYY-MM|date=YYYY-MM-DD
+ * @desc    Preview a statement calculation without persisting
+ * @access  Public
+ */
+router.get('/:id/statement-preview',
+  accrueDebtPreviewValidator,
+  validate,
+  getDebtStatementPreview
 );
 
 export default router;

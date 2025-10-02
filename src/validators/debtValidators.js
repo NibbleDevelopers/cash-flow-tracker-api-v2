@@ -156,4 +156,50 @@ export const getDebtInstallmentsValidator = [
     .withMessage('start must be an ISO date (YYYY-MM-DD)')
 ];
 
+/**
+ * Validation rules for accruing debt interest automatically
+ * Query: date (optional, YYYY-MM-DD), dryRun (optional boolean)
+ */
+export const accrueDebtValidator = [
+  param('id')
+    .isString()
+    .withMessage('ID must be a string'),
+
+  query('date')
+    .optional()
+    .isISO8601({ strict: true })
+    .withMessage('date must be an ISO date (YYYY-MM-DD)'),
+
+  query('period')
+    .optional()
+    .matches(/^\d{4}-\d{2}$/)
+    .withMessage('period must be YYYY-MM'),
+
+  query('recompute')
+    .optional()
+    .isBoolean()
+    .withMessage('recompute must be boolean')
+];
+
+export const accrueDebtPreviewValidator = [
+  param('id')
+    .isString()
+    .withMessage('ID must be a string'),
+
+  query('date')
+    .optional()
+    .isISO8601({ strict: true })
+    .withMessage('date must be an ISO date (YYYY-MM-DD)')
+    ,
+  query('period')
+    .optional()
+    .matches(/^\d{4}-\d{2}$/)
+    .withMessage('period must be YYYY-MM')
+    ,
+  query('recompute')
+    .optional()
+    .isBoolean()
+    .withMessage('recompute must be boolean')
+];
+
 

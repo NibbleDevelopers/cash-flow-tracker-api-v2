@@ -104,12 +104,65 @@ const debts = {
   activo: 'active'
 };
 
+const creditHistory = {
+  debtid: 'debtId',
+  debt: 'debtId',
+  debtId: 'debtId',
+  statementdate: 'statementDate',
+  statementDate: 'statementDate',
+  duedate: 'dueDate',
+  dueDate: 'dueDate',
+
+  previousbalance: 'previousBalance',
+  previousBalance: 'previousBalance',
+  saldoanterior: 'previousBalance',
+
+  charges: 'charges',
+  cargos: 'charges',
+
+  interests: 'interests',
+  interes: 'interests',
+  intereses: 'interests',
+
+  payments: 'payments',
+  abonos: 'payments',
+
+  statementbalance: 'statementBalance',
+  statementBalance: 'statementBalance',
+  saldototal: 'statementBalance',
+
+  bonifiableinterest: 'bonifiableInterest',
+  bonificableinterest: 'bonifiableInterest',
+  interesesbonificables: 'bonifiableInterest',
+  interestbonificables: 'bonifiableInterest',
+
+  installmentbalance: 'installmentBalance',
+  saldoaplazos: 'installmentBalance',
+  saldoaplazo: 'installmentBalance',
+
+  annualeffectiverate: 'annualEffectiveRate',
+  annualEffectiveRate: 'annualEffectiveRate',
+
+  termmonths: 'termMonths',
+  termMonths: 'termMonths',
+  plazo: 'termMonths',
+  plazos: 'termMonths',
+
+  perioddays: 'periodDays',
+  periodDays: 'periodDays',
+  periodo: 'periodDays',
+
+  paymentmade: 'paymentMade',
+  paymentMade: 'paymentMade'
+};
+
 export default {
   Categories: categories,
   Expenses: expenses,
   FixedExpenses: fixedExpenses,
   Budget: budget,
-  Debts: debts
+  Debts: debts,
+  CreditHistory: creditHistory
 };
 
 

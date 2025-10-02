@@ -55,7 +55,23 @@ export default {
   Expenses,
   FixedExpenses,
   Budget,
-  Debts
+  Debts,
+  CreditHistory: {
+    debtId: 'string',
+    statementDate: 'date',
+    dueDate: 'date',
+    previousBalance: 'number',
+    charges: 'number',
+    interests: 'number',
+    payments: 'number',
+    statementBalance: 'number',
+    bonifiableInterest: 'number',
+    installmentBalance: 'number',
+    annualEffectiveRate: 'number',
+    termMonths: 'number',
+    periodDays: 'number',
+    paymentMade: 'number'
+  }
 };
 
 

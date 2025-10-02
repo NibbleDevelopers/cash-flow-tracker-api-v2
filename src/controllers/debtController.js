@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import logger from '../config/logger.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { buildDebtSummary, monthlyRateFromAnnualEffective, interestForMonth, nextDateForDayOfMonth } from '../utils/finance.js';
+import { calculateStatement, normalizeAnnualRateToUnit, resolvePeriodBounds, buildEvents, sumPayments as sumPaymentsCalc, sumCharges as sumChargesCalc, computeSpdInterests } from '../utils/creditStatementCalculator.js';
+import { daysBetweenDates } from '../utils/finance.js';
 
 const sheetsService = new GoogleSheetsService();
 
@@ -316,6 +318,375 @@ export const getDebtInstallments = async (req, res, next) => {
   }
 };
 
+/**
+ * POST /api/debts/:id/accrue?date=YYYY-MM-DD&dryRun=true|false
+ * Calculate and record one cycle in CreditHistory and add interest to Debts.balance
+ */
+export const accrueDebt = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const recompute = String(req.query.recompute || 'false').toLowerCase() === 'true';
+    const dateParam = req.query.date;
+    const periodParam = req.query.period;
+    const baseDate = dateParam ? new Date(dateParam) : new Date();
+
+    logger.info('POST /api/debts/:id/accrue - Start', { id, dateParam, periodParam, recompute });
+
+    // 1) Load debt
+    const rows = await sheetsService.getDebts();
+    const idx = { id: 0, name: 1, issuer: 2, creditLimit: 3, balance: 4, dueDay: 5, cutOffDay: 6, maskPan: 7, interesEfectivo: 8, brand: 9, active: 10 };
+    const row = rows.slice(1).find(r => String(r[idx.id]) === String(id));
+    if (!row) throw new ApiError(404, 'Debt not found');
+
+    const debt = {
+      id: row[idx.id],
+      name: row[idx.name],
+      balance: row[idx.balance] ? parseFloat(row[idx.balance]) : 0,
+      dueDay: row[idx.dueDay] ? parseInt(row[idx.dueDay], 10) : null,
+      cutOffDay: row[idx.cutOffDay] ? parseInt(row[idx.cutOffDay], 10) : null,
+      interesEfectivo: row[idx.interesEfectivo] ? parseFloat(row[idx.interesEfectivo]) : 0,
+      active: row[idx.active] === 'TRUE'
+    };
+    if (!debt.active) {
+      return res.status(200).json({ success: true, skipped: true, reason: 'Debt is inactive' });
+    }
+
+    // 2) Resolve statementDate and dueDate
+    const dayClamp = (y, m, d) => Math.min(Math.max(1, d), new Date(y, m + 1, 0).getDate());
+    const dateOnly = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const base = dateOnly(baseDate);
+
+    let statementDate;
+    if (periodParam && /^\d{4}-\d{2}$/.test(String(periodParam))) {
+      const [yStr, mStr] = String(periodParam).split('-');
+      const y = parseInt(yStr, 10);
+      const m = parseInt(mStr, 10) - 1; // 0-based
+      if (!Number.isFinite(y) || !Number.isFinite(m) || m < 0 || m > 11) {
+        throw new ApiError(400, 'Invalid period format. Expected YYYY-MM');
+      }
+      if (Number.isFinite(debt.cutOffDay)) {
+        statementDate = new Date(y, m, dayClamp(y, m, debt.cutOffDay));
+      } else {
+        // No cutOffDay: use last day of that month
+        statementDate = new Date(y, m + 1, 0);
+      }
+    } else {
+      if (Number.isFinite(debt.cutOffDay)) {
+        // If base date is not on cutoff, use the latest cutoff on or before base
+        const currentMonthCut = new Date(base.getFullYear(), base.getMonth(), dayClamp(base.getFullYear(), base.getMonth(), debt.cutOffDay));
+        if (base.getDate() >= currentMonthCut.getDate()) {
+          statementDate = currentMonthCut;
+        } else {
+          const prevMonth = new Date(base.getFullYear(), base.getMonth() - 1, 1);
+          statementDate = new Date(prevMonth.getFullYear(), prevMonth.getMonth(), dayClamp(prevMonth.getFullYear(), prevMonth.getMonth(), debt.cutOffDay));
+        }
+      } else {
+        // Use last day of previous month as statementDate
+        const prevMonthEnd = new Date(base.getFullYear(), base.getMonth(), 0);
+        statementDate = prevMonthEnd;
+      }
+    }
+
+    const nextStatementDate = Number.isFinite(debt.cutOffDay)
+      ? nextDateForDayOfMonth(debt.cutOffDay, new Date(statementDate.getFullYear(), statementDate.getMonth(), statementDate.getDate() + 1))
+      : new Date(statementDate.getFullYear(), statementDate.getMonth() + 1, 0);
+
+    const dueDate = Number.isFinite(debt.dueDay)
+      ? nextDateForDayOfMonth(debt.dueDay, statementDate)
+      : new Date(statementDate.getFullYear(), statementDate.getMonth(), dayClamp(statementDate.getFullYear(), statementDate.getMonth(), 25));
+
+    // 3) Idempotency: check existing CreditHistory for (id, statementDate)
+    const history = await sheetsService.getCreditHistoryObjects();
+    const statementDateStr = statementDate.toISOString().slice(0, 10);
+    const exists = history.some(h => String(h.debtId) === String(id) && String(h.statementDate) === statementDateStr);
+    let previousRowNumber = null;
+    let previousRecord = null;
+    if (exists) {
+      if (!recompute && !dryRun) {
+        return res.status(200).json({ success: true, skipped: true, reason: 'Already accrued for this statementDate', statementDate: statementDateStr });
+      }
+      // Load previous record to rollback
+      previousRowNumber = await sheetsService.findCreditHistoryRow(id, statementDateStr);
+      if (previousRowNumber) {
+        previousRecord = await sheetsService.getCreditHistoryByRow(previousRowNumber);
+      }
+    }
+
+    // 4) Determine previous record for previousBalance (we keep backward compat where available)
+    const lastForDebt = history
+      .filter(h => String(h.debtId) === String(id) && h.statementDate && h.statementDate < statementDateStr)
+      .sort((a, b) => (a.statementDate < b.statementDate ? 1 : -1))[0];
+    const previousBalance = lastForDebt && Number.isFinite(lastForDebt.statementBalance) ? Number(lastForDebt.statementBalance) : (Number.isFinite(debt.balance) ? Number(debt.balance) : 0);
+
+    // 5) Gather expenses in [prevStatementDate, statementDate) and compute components
+    const allExpenses = await sheetsService.getExpensesObjects();
+    const periodEvents = [];
+    const startPeriod = new Date(statementDate.getFullYear(), statementDate.getMonth() - 1, statementDate.getDate());
+    for (const e of allExpenses) {
+      if (!e || !e.debtId || String(e.debtId) !== String(id) || !e.date) continue;
+      const d = new Date(e.date);
+      const dateOnlyEvent = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (dateOnlyEvent >= new Date(startPeriod.getFullYear(), startPeriod.getMonth(), startPeriod.getDate()) && dateOnlyEvent < new Date(statementDate.getFullYear(), statementDate.getMonth(), statementDate.getDate())) {
+        const entryType = e.entryType ? String(e.entryType).toLowerCase() : '';
+        const amount = Number(e.amount) || 0;
+        if (amount <= 0) continue;
+        if (entryType === 'charge' || entryType === 'payment') {
+          periodEvents.push({ date: dateOnlyEvent, kind: entryType, amount });
+        }
+      }
+    }
+    periodEvents.sort((a, b) => {
+      if (a.date.getTime() !== b.date.getTime()) return a.date - b.date;
+      if (a.kind === b.kind) return 0;
+      return a.kind === 'payment' ? -1 : 1;
+    });
+
+    const charges = periodEvents.filter(e => e.kind === 'charge').reduce((s, e) => s + e.amount, 0);
+    const payments = periodEvents.filter(e => e.kind === 'payment').reduce((s, e) => s + e.amount, 0);
+
+    const annualRateUnit = debt.interesEfectivo > 1 ? (debt.interesEfectivo / 100) : debt.interesEfectivo;
+    // Compute SPD interests using same breakdown
+    let nbBalance = Math.max(0, previousBalance);
+    let bBalance = 0;
+    let nbBalanceDays = 0;
+    let bBalanceDays = 0;
+    let cursor = new Date(startPeriod.getFullYear(), startPeriod.getMonth(), startPeriod.getDate());
+    const addSegment = (until) => {
+      const days = daysBetweenDates(cursor, until) || 0;
+      if (days > 0) {
+        nbBalanceDays += nbBalance * days;
+        bBalanceDays += bBalance * days;
+        cursor = until;
+      }
+    };
+    for (const ev of periodEvents) {
+      addSegment(ev.date);
+      if (ev.kind === 'payment') {
+        const appliedToNb = Math.min(nbBalance, ev.amount);
+        nbBalance -= appliedToNb;
+        const remainder = ev.amount - appliedToNb;
+        bBalance = Math.max(0, bBalance - remainder);
+      } else if (ev.kind === 'charge') {
+        bBalance += ev.amount;
+      }
+    }
+    addSegment(new Date(statementDate.getFullYear(), statementDate.getMonth(), statementDate.getDate()));
+    const interestSobreSaldo = Number((nbBalanceDays * ((annualRateUnit || 0)/365)).toFixed(2));
+    const interestBonificable = Number((bBalanceDays * ((annualRateUnit || 0)/365)).toFixed(2));
+    const interests = Number(interestSobreSaldo.toFixed(2));
+    const bonifiableInterest = Number(interestBonificable.toFixed(2));
+    const statementBalance = Number((Math.max(0, previousBalance + charges + interests - payments)).toFixed(2));
+    const installmentBalance = Number((statementBalance + bonifiableInterest).toFixed(2));
+
+    // No dryRun here; use preview endpoint for GET
+
+    // 7) Persist: append/update CreditHistory (no balance adjustments; interests are descriptive)
+    const record = {
+      debtId: id,
+      statementDate: statementDateStr,
+      dueDate: dueDate.toISOString().slice(0, 10),
+      previousBalance,
+      charges,
+      interests,
+      payments,
+      statementBalance,
+      bonifiableInterest,
+      installmentBalance,
+      annualEffectiveRate: annualRateUnit,
+      termMonths: null,
+      periodDays: daysBetweenDates(new Date(startPeriod.getFullYear(), startPeriod.getMonth(), startPeriod.getDate()), statementDate) || 0,
+      paymentMade: await sheetsService.sumPaymentsForDebt(id, statementDateStr, dueDate.toISOString().slice(0,10))
+    };
+    if (exists && previousRowNumber && recompute) {
+      await sheetsService.updateCreditHistoryRow(previousRowNumber, record);
+    } else {
+      await sheetsService.appendCreditHistoryRecord(record);
+    }
+
+    logger.info('Debt statement computed', { debtId: id, statementDate: statementDateStr });
+    return res.status(200).json({
+      success: true,
+      idempotency: { key: `${id}|${statementDateStr}`, status: 'created' },
+      data: { ...record, interestBreakdown: { interestSobreSaldo, interestBonificable } }
+    });
+  } catch (error) {
+    logger.error('Error in accrueDebt controller', { params: req.params, query: req.query, error: error.message });
+    next(error);
+  }
+};
 export default {};
+
+/**
+ * GET /api/debts/:id/statement-preview?period=YYYY-MM|date=YYYY-MM-DD
+ * Calculate a statement preview without persisting
+ */
+export const getDebtStatementPreview = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const dateParam = req.query.date;
+    const periodParam = req.query.period;
+    const recompute = String(req.query.recompute || 'false').toLowerCase() === 'true';
+    const baseDate = dateParam ? new Date(dateParam) : new Date();
+
+    logger.info('GET /api/debts/:id/statement-preview - Start', { id, dateParam, periodParam });
+
+    // Load debt
+    const rows = await sheetsService.getDebts();
+    const idx = { id: 0, name: 1, issuer: 2, creditLimit: 3, balance: 4, dueDay: 5, cutOffDay: 6, maskPan: 7, interesEfectivo: 8, brand: 9, active: 10 };
+    const row = rows.slice(1).find(r => String(r[idx.id]) === String(id));
+    if (!row) throw new ApiError(404, 'Debt not found');
+
+    const debt = {
+      id: row[idx.id],
+      name: row[idx.name],
+      balance: row[idx.balance] ? parseFloat(row[idx.balance]) : 0,
+      dueDay: row[idx.dueDay] ? parseInt(row[idx.dueDay], 10) : null,
+      cutOffDay: row[idx.cutOffDay] ? parseInt(row[idx.cutOffDay], 10) : null,
+      interesEfectivo: row[idx.interesEfectivo] ? parseFloat(row[idx.interesEfectivo]) : 0,
+      active: row[idx.active] === 'TRUE'
+    };
+    if (!debt.active) {
+      return res.status(200).json({ success: true, skipped: true, reason: 'Debt is inactive' });
+    }
+
+    // Resolve dates (reuse logic from accrueDebt)
+    const dayClamp = (y, m, d) => Math.min(Math.max(1, d), new Date(y, m + 1, 0).getDate());
+    const dateOnly = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const base = dateOnly(baseDate);
+
+    let statementDate;
+    if (periodParam && /^\d{4}-\d{2}$/.test(String(periodParam))) {
+      const [yStr, mStr] = String(periodParam).split('-');
+      const y = parseInt(yStr, 10);
+      const m = parseInt(mStr, 10) - 1;
+      if (!Number.isFinite(y) || !Number.isFinite(m) || m < 0 || m > 11) {
+        throw new ApiError(400, 'Invalid period format. Expected YYYY-MM');
+      }
+      if (Number.isFinite(debt.cutOffDay)) {
+        statementDate = new Date(y, m, dayClamp(y, m, debt.cutOffDay));
+      } else {
+        statementDate = new Date(y, m + 1, 0);
+      }
+    } else {
+      if (Number.isFinite(debt.cutOffDay)) {
+        const currentMonthCut = new Date(base.getFullYear(), base.getMonth(), dayClamp(base.getFullYear(), base.getMonth(), debt.cutOffDay));
+        if (base.getDate() >= currentMonthCut.getDate()) {
+          statementDate = currentMonthCut;
+        } else {
+          const prevMonth = new Date(base.getFullYear(), base.getMonth() - 1, 1);
+          statementDate = new Date(prevMonth.getFullYear(), prevMonth.getMonth(), dayClamp(prevMonth.getFullYear(), prevMonth.getMonth(), debt.cutOffDay));
+        }
+      } else {
+        const prevMonthEnd = new Date(base.getFullYear(), base.getMonth(), 0);
+        statementDate = prevMonthEnd;
+      }
+    }
+
+    const nextStatementDate = Number.isFinite(debt.cutOffDay)
+      ? new Date(statementDate.getFullYear(), statementDate.getMonth() + 1, dayClamp(statementDate.getFullYear(), statementDate.getMonth() + 1, debt.cutOffDay))
+      : new Date(statementDate.getFullYear(), statementDate.getMonth() + 1, 0);
+
+    const dueDate = Number.isFinite(debt.dueDay)
+      ? new Date(statementDate.getFullYear(), statementDate.getMonth(), dayClamp(statementDate.getFullYear(), statementDate.getMonth(), debt.dueDay))
+      : new Date(statementDate.getFullYear(), statementDate.getMonth(), dayClamp(statementDate.getFullYear(), statementDate.getMonth(), 25));
+
+    // If recompute=false and a record exists for this statementDate, return it directly
+    const history = await sheetsService.getCreditHistoryObjects();
+    const statementDateStr = statementDate.toISOString().slice(0,10);
+    const existing = history.find(h => String(h.debtId) === String(id) && String(h.statementDate) === statementDateStr);
+    if (existing && !recompute) {
+      return res.status(200).json({ success: true, data: existing, cached: true });
+    }
+
+    // PreviousBalance from last statement (if any) or current debt balance
+    const lastForDebt = history
+      .filter(h => String(h.debtId) === String(id) && h.statementDate && h.statementDate < statementDateStr)
+      .sort((a, b) => (a.statementDate < b.statementDate ? 1 : -1))[0];
+    const previousBalance = lastForDebt && Number.isFinite(lastForDebt.statementBalance) ? Number(lastForDebt.statementBalance) : (Number.isFinite(debt.balance) ? Number(debt.balance) : 0);
+
+    // Build events within period
+    const allExpenses = await sheetsService.getExpensesObjects();
+    const startPeriod = new Date(statementDate.getFullYear(), statementDate.getMonth() - 1, statementDate.getDate());
+    const periodEvents = [];
+    for (const e of allExpenses) {
+      if (!e || !e.debtId || String(e.debtId) !== String(id) || !e.date) continue;
+      const d = new Date(e.date);
+      const dateOnlyEvent = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (dateOnlyEvent >= new Date(startPeriod.getFullYear(), startPeriod.getMonth(), startPeriod.getDate()) && dateOnlyEvent < new Date(statementDate.getFullYear(), statementDate.getMonth(), statementDate.getDate())) {
+        const entryType = e.entryType ? String(e.entryType).toLowerCase() : '';
+        const amount = Number(e.amount) || 0;
+        if (amount <= 0) continue;
+        if (entryType === 'charge' || entryType === 'payment') {
+          periodEvents.push({ date: dateOnlyEvent, kind: entryType, amount });
+        }
+      }
+    }
+    periodEvents.sort((a, b) => {
+      if (a.date.getTime() !== b.date.getTime()) return a.date - b.date;
+      if (a.kind === b.kind) return 0;
+      return a.kind === 'payment' ? -1 : 1;
+    });
+
+    const charges = periodEvents.filter(e => e.kind === 'charge').reduce((s, e) => s + e.amount, 0);
+    const payments = periodEvents.filter(e => e.kind === 'payment').reduce((s, e) => s + e.amount, 0);
+
+    const annualRateUnit = debt.interesEfectivo > 1 ? (debt.interesEfectivo / 100) : debt.interesEfectivo;
+    let nbBalance = Math.max(0, previousBalance);
+    let bBalance = 0;
+    let nbBalanceDays = 0;
+    let bBalanceDays = 0;
+    let cursor = new Date(startPeriod.getFullYear(), startPeriod.getMonth(), startPeriod.getDate());
+    const addSegment = (until) => {
+      const days = Math.round((new Date(until.getFullYear(), until.getMonth(), until.getDate()) - new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate())) / (1000*60*60*24));
+      if (days > 0) {
+        nbBalanceDays += nbBalance * days;
+        bBalanceDays += bBalance * days;
+        cursor = until;
+      }
+    };
+    for (const ev of periodEvents) {
+      addSegment(ev.date);
+      if (ev.kind === 'payment') {
+        const appliedToNb = Math.min(nbBalance, ev.amount);
+        nbBalance -= appliedToNb;
+        const remainder = ev.amount - appliedToNb;
+        bBalance = Math.max(0, bBalance - remainder);
+      } else if (ev.kind === 'charge') {
+        bBalance += ev.amount;
+      }
+    }
+    addSegment(new Date(statementDate.getFullYear(), statementDate.getMonth(), statementDate.getDate()));
+    const interestSobreSaldo = Number((nbBalanceDays * ((annualRateUnit || 0)/365)).toFixed(2));
+    const interestBonificable = Number((bBalanceDays * ((annualRateUnit || 0)/365)).toFixed(2));
+    const interests = Number(interestSobreSaldo.toFixed(2));
+    const bonifiableInterest = Number(interestBonificable.toFixed(2));
+    const statementBalance = Number((Math.max(0, previousBalance + charges + interests - payments)).toFixed(2));
+    const installmentBalance = Number((statementBalance + bonifiableInterest).toFixed(2));
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        debtId: id,
+        statementDate: statementDate.toISOString().slice(0,10),
+        dueDate: dueDate.toISOString().slice(0,10),
+        previousBalance,
+        charges,
+        interests,
+        payments,
+        statementBalance,
+        bonifiableInterest,
+        installmentBalance,
+        annualEffectiveRate: annualRateUnit,
+        termMonths: null,
+        periodDays: Math.round((statementDate - startPeriod)/(1000*60*60*24)),
+        paymentMade: await sheetsService.sumPaymentsForDebt(id, statementDate.toISOString().slice(0,10), dueDate.toISOString().slice(0,10)),
+        interestBreakdown: { interestSobreSaldo, interestBonificable }
+      }
+    });
+  } catch (error) {
+    logger.error('Error in getDebtStatementPreview controller', { params: req.params, query: req.query, error: error.message });
+    next(error);
+  }
+};
 
 

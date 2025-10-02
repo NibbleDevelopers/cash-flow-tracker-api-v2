@@ -903,6 +903,170 @@ class GoogleSheetsService {
   }
 
   /**
+   * Get CreditHistory as array of objects
+   */
+  async getCreditHistoryObjects() {
+    try {
+      logger.info('Fetching credit history (objects) from Google Sheets');
+      const response = await this.makeRequest('/values/CreditHistory!A:N');
+      const values = response.values || [];
+      const items = this.coerceTypesForSheet(
+        this.normalizeKeysForSheet(this.mapRowsToObjects(values), 'CreditHistory'),
+        'CreditHistory'
+      );
+      logger.info('Credit history (objects) fetched successfully', { count: items.length });
+      return items;
+    } catch (error) {
+      logger.error('Error fetching credit history (objects)', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Append one record to CreditHistory
+   */
+  async appendCreditHistoryRecord(record) {
+    try {
+      logger.info('Appending credit history record', { debtId: record.debtId, statementDate: record.statementDate });
+      const values = [[
+        record.debtId || '',
+        record.statementDate || '',
+        record.dueDate || '',
+        record.previousBalance !== undefined ? String(record.previousBalance) : '',
+        record.charges !== undefined ? String(record.charges) : '',
+        record.interests !== undefined ? String(record.interests) : '',
+        record.payments !== undefined ? String(record.payments) : '',
+        record.statementBalance !== undefined ? String(record.statementBalance) : '',
+        record.bonifiableInterest !== undefined ? String(record.bonifiableInterest) : '',
+        record.installmentBalance !== undefined ? String(record.installmentBalance) : '',
+        record.annualEffectiveRate !== undefined ? String(record.annualEffectiveRate) : '',
+        record.termMonths !== undefined ? String(record.termMonths) : '',
+        record.periodDays !== undefined ? String(record.periodDays) : '',
+        record.paymentMade !== undefined ? String(record.paymentMade) : ''
+      ]];
+
+      const response = await this.makeRequest('/values/CreditHistory!A:N:append?valueInputOption=RAW', {
+        method: 'POST',
+        body: JSON.stringify({ values })
+      });
+      logger.info('Credit history record appended');
+      return response;
+    } catch (error) {
+      logger.error('Error appending credit history record', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Find CreditHistory row number by (debtId, statementDate)
+   */
+  async findCreditHistoryRow(debtId, statementDateISO) {
+    try {
+      const response = await this.makeRequest('/values/CreditHistory!A:B');
+      const rows = response.values || [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i] || [];
+        if (String(r[0]) === String(debtId) && String(r[1]) === String(statementDateISO)) {
+          return i + 1; // 1-based
+        }
+      }
+      return null;
+    } catch (error) {
+      logger.error('Error finding credit history row', { debtId, statementDateISO, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Get a single CreditHistory record by row number
+   */
+  async getCreditHistoryByRow(rowNumber) {
+    try {
+      const resp = await this.makeRequest(`/values/CreditHistory!A${rowNumber}:N${rowNumber}`);
+      const row = (resp.values && resp.values[0]) || [];
+      return {
+        debtId: row[0],
+        statementDate: row[1],
+        dueDate: row[2],
+        previousBalance: row[3] !== undefined ? parseFloat(row[3]) : 0,
+        charges: row[4] !== undefined ? parseFloat(row[4]) : 0,
+        interests: row[5] !== undefined ? parseFloat(row[5]) : 0,
+        payments: row[6] !== undefined ? parseFloat(row[6]) : 0,
+        statementBalance: row[7] !== undefined ? parseFloat(row[7]) : 0,
+        bonifiableInterest: row[8] !== undefined ? parseFloat(row[8]) : 0,
+        installmentBalance: row[9] !== undefined ? parseFloat(row[9]) : 0,
+        annualEffectiveRate: row[10] !== undefined ? parseFloat(row[10]) : 0,
+        termMonths: row[11] !== undefined ? parseInt(row[11], 10) : null,
+        periodDays: row[12] !== undefined ? parseInt(row[12], 10) : 0,
+        paymentMade: row[13] !== undefined ? parseFloat(row[13]) : 0
+      };
+    } catch (error) {
+      logger.error('Error getting credit history by row', { rowNumber, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Update a CreditHistory row with a new record
+   */
+  async updateCreditHistoryRow(rowNumber, record) {
+    try {
+      const values = [[
+        record.debtId || '',
+        record.statementDate || '',
+        record.dueDate || '',
+        record.previousBalance !== undefined ? String(record.previousBalance) : '',
+        record.charges !== undefined ? String(record.charges) : '',
+        record.interests !== undefined ? String(record.interests) : '',
+        record.payments !== undefined ? String(record.payments) : '',
+        record.statementBalance !== undefined ? String(record.statementBalance) : '',
+        record.bonifiableInterest !== undefined ? String(record.bonifiableInterest) : '',
+        record.installmentBalance !== undefined ? String(record.installmentBalance) : '',
+        record.annualEffectiveRate !== undefined ? String(record.annualEffectiveRate) : '',
+        record.termMonths !== undefined ? String(record.termMonths) : '',
+        record.periodDays !== undefined ? String(record.periodDays) : '',
+        record.paymentMade !== undefined ? String(record.paymentMade) : ''
+      ]];
+      const response = await this.makeRequest(`/values/CreditHistory!A${rowNumber}:N${rowNumber}?valueInputOption=RAW`, {
+        method: 'PUT',
+        body: JSON.stringify({ values })
+      });
+      return response;
+    } catch (error) {
+      logger.error('Error updating credit history row', { rowNumber, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Sum payments from Expenses for a debt between two dates inclusive
+   */
+  async sumPaymentsForDebt(debtId, startDateISO, endDateISO) {
+    try {
+      const expenses = await this.getExpensesObjects();
+      const start = new Date(startDateISO);
+      const end = new Date(endDateISO);
+      let total = 0;
+      for (const e of expenses) {
+        if (!e || !e.debtId || !e.date) continue;
+        if (String(e.debtId) !== String(debtId)) continue;
+        const entryType = e.entryType ? String(e.entryType).toLowerCase() : '';
+        if (entryType !== 'payment') continue;
+        const d = new Date(e.date);
+        const dateOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        if (dateOnly >= new Date(start.getFullYear(), start.getMonth(), start.getDate()) && dateOnly <= new Date(end.getFullYear(), end.getMonth(), end.getDate())) {
+          const amt = Number(e.amount);
+          if (Number.isFinite(amt)) total += amt;
+        }
+      }
+      return Number(total.toFixed(2));
+    } catch (error) {
+      logger.error('Error summing payments for debt', { debtId, startDateISO, endDateISO, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
    * Add new debt to Google Sheets
    */
   async addDebt(debt) {

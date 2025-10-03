@@ -133,6 +133,20 @@ export function computeSpdInterests(previousBalance, events, annualRateUnit, sta
   return { interestSobreSaldo, interestBonificable };
 }
 
+// Decide cuánto interés bonificable del periodo anterior se traslada (carry-over)
+// Regla: si el pago del periodo anterior es menor a la cuota (installmentBalance),
+// trasladar el bonificable anterior; de lo contrario, 0.
+export function computeInterestCarryOver(previousRecord, previousPeriodPaid, epsilon = 0.005) {
+  if (!previousRecord) return 0;
+  const prevInstallment = Number(previousRecord.installmentBalance) || 0;
+  const prevBonificable = Number(previousRecord.bonifiableInterest) || 0;
+  const paid = Number(previousPeriodPaid) || 0;
+  if (paid + epsilon < prevInstallment) {
+    return Number(prevBonificable.toFixed(2));
+  }
+  return 0;
+}
+
 export function computeStatement(previousBalance, charges, interests, payments) {
   return Number((Math.max(0, (Number(previousBalance)||0) + (Number(charges)||0) + (Number(interests)||0) - (Number(payments)||0))).toFixed(2));
 }
@@ -190,6 +204,7 @@ export default {
   sumCharges,
   sumPayments,
   computeSpdInterests,
+  computeInterestCarryOver,
   computeStatement,
   computeInstallmentBalance,
   calculateStatement

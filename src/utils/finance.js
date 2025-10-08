@@ -28,6 +28,28 @@ export const interestForMonth = (balance, monthlyRate) => {
 };
 
 /**
+ * Redondea un número a dos decimales para presentación (sin alterar precisión interna)
+ */
+export const toTwoDecimals = (value, asString = true) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return asString ? '0.00' : 0;
+  const fixed = n.toFixed(2);
+  return asString ? fixed : Number(fixed);
+};
+
+/**
+ * Aplica toTwoDecimals a un conjunto de claves numéricas en un objeto de respuesta
+ */
+export const formatResponseTwoDecimals = (obj, keys, asString = true) => {
+  if (!obj || !Array.isArray(keys)) return obj;
+  const out = { ...obj };
+  for (const k of keys) {
+    if (k in out) out[k] = toTwoDecimals(out[k], asString);
+  }
+  return out;
+};
+
+/**
  * Clamp day of month to the last valid day for a given year-month
  */
 const clampDay = (year, monthIndexZeroBased, day) => {

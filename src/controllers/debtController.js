@@ -2,7 +2,7 @@ import GoogleSheetsService from '../services/googleSheetsService.js';
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../config/logger.js';
 import { ApiError } from '../middleware/errorHandler.js';
-import { buildDebtSummary, monthlyRateFromAnnualEffective, interestForMonth, nextDateForDayOfMonth } from '../utils/finance.js';
+import { buildDebtSummary, monthlyRateFromAnnualEffective, interestForMonth, nextDateForDayOfMonth, formatResponseTwoDecimals } from '../utils/finance.js';
 import { calculateStatement, normalizeAnnualRateToUnit, resolvePeriodBounds, buildEvents, sumPayments as sumPaymentsCalc, sumCharges as sumChargesCalc, computeSpdInterests, computeInterestCarryOver } from '../utils/creditStatementCalculator.js';
 import { daysBetweenDates } from '../utils/finance.js';
 
@@ -473,16 +473,16 @@ export const accrueDebt = async (req, res, next) => {
     addSegment(new Date(statementDate.getFullYear(), statementDate.getMonth(), statementDate.getDate()));
     const interestSobreSaldo = Number((nbBalanceDays * ((annualRateUnit || 0)/365)).toFixed(2));
     const interestBonificable = Number((bBalanceDays * ((annualRateUnit || 0)/365)).toFixed(2));
-    // Carry-over usando utilidad compartida
+    // Carry-over usando utilidad compartida (usar el periodo anterior real, no el registro actual)
     let interestCarryOver = 0;
-    if (previousRecord) {
+    if (lastForDebt) {
       try {
         const prevPaid = await sheetsService.sumPaymentsForDebt(
           id,
-          String(previousRecord.statementDate),
-          String(previousRecord.dueDate)
+          String(lastForDebt.statementDate),
+          String(lastForDebt.dueDate)
         );
-        interestCarryOver = computeInterestCarryOver(previousRecord, prevPaid);
+        interestCarryOver = computeInterestCarryOver(lastForDebt, prevPaid);
       } catch (e) {
         interestCarryOver = 0;
       }
@@ -518,10 +518,21 @@ export const accrueDebt = async (req, res, next) => {
     }
 
     logger.info('Debt statement computed', { debtId: id, statementDate: statementDateStr });
+    // Formatear breakdown y campos numéricos como strings con 2 decimales
+    const breakdownFormatted = formatResponseTwoDecimals(
+      { interestSobreSaldo, interestBonificable, interestCarryOver },
+      ['interestSobreSaldo','interestBonificable','interestCarryOver'],
+      true
+    );
+    const formatted = formatResponseTwoDecimals(
+      { ...record, interestBreakdown: breakdownFormatted },
+      ['previousBalance','charges','interests','payments','statementBalance','bonifiableInterest','installmentBalance','annualEffectiveRate','paymentMade'],
+      true
+    );
     return res.status(200).json({
       success: true,
       idempotency: { key: `${id}|${statementDateStr}`, status: 'created' },
-      data: { ...record, interestBreakdown: { interestSobreSaldo, interestBonificable, interestCarryOver } }
+      data: formatted
     });
   } catch (error) {
     logger.error('Error in accrueDebt controller', { params: req.params, query: req.query, error: error.message });
@@ -692,26 +703,34 @@ export const getDebtStatementPreview = async (req, res, next) => {
     const statementBalance = Number((Math.max(0, previousBalance + charges + interests - payments)).toFixed(2));
     const installmentBalance = Number((statementBalance + bonifiableInterest).toFixed(2));
 
-    return res.status(200).json({
-      success: true,
-      data: {
-        debtId: id,
-        statementDate: statementDate.toISOString().slice(0,10),
-        dueDate: dueDate.toISOString().slice(0,10),
-        previousBalance,
-        charges,
-        interests,
-        payments,
-        statementBalance,
-        bonifiableInterest,
-        installmentBalance,
-        annualEffectiveRate: annualRateUnit,
-        termMonths: null,
-        periodDays: daysBetweenDates(new Date(startPeriod.getFullYear(), startPeriod.getMonth(), startPeriod.getDate()), statementDate),
-        paymentMade: await sheetsService.sumPaymentsForDebt(id, statementDate.toISOString().slice(0,10), dueDate.toISOString().slice(0,10)),
-        interestBreakdown: { interestSobreSaldo, interestBonificable, interestCarryOver }
-      }
-    });
+    const previewData = {
+      debtId: id,
+      statementDate: statementDate.toISOString().slice(0,10),
+      dueDate: dueDate.toISOString().slice(0,10),
+      previousBalance,
+      charges,
+      interests,
+      payments,
+      statementBalance,
+      bonifiableInterest,
+      installmentBalance,
+      annualEffectiveRate: annualRateUnit,
+      termMonths: null,
+      periodDays: daysBetweenDates(new Date(startPeriod.getFullYear(), startPeriod.getMonth(), startPeriod.getDate()), statementDate),
+      paymentMade: await sheetsService.sumPaymentsForDebt(id, statementDate.toISOString().slice(0,10), dueDate.toISOString().slice(0,10)),
+      interestBreakdown: { interestSobreSaldo, interestBonificable, interestCarryOver }
+    };
+    const breakdownPreview = formatResponseTwoDecimals(
+      previewData.interestBreakdown,
+      ['interestSobreSaldo','interestBonificable','interestCarryOver'],
+      true
+    );
+    const formattedPreview = formatResponseTwoDecimals(
+      { ...previewData, interestBreakdown: breakdownPreview },
+      ['previousBalance','charges','interests','payments','statementBalance','bonifiableInterest','installmentBalance','annualEffectiveRate','paymentMade'],
+      true
+    );
+    return res.status(200).json({ success: true, data: formattedPreview });
   } catch (error) {
     logger.error('Error in getDebtStatementPreview controller', { params: req.params, query: req.query, error: error.message });
     next(error);

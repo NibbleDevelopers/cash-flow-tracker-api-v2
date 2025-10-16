@@ -1,16 +1,13 @@
-﻿import GoogleSheetsService from '../services/googleSheetsService.js';
-import logger from '../config/logger.js';
-
-const sheetsService = new GoogleSheetsService();
+﻿import logger from '../config/logger.js';
 
 /**
  * Get all categories
  */
 export const getCategories = async (req, res, next) => {
   try {
-    logger.info('GET /api/categories - Fetching all categories');
+    logger.info('GET /api/categories - Fetching all categories', { userId: req.user?.id });
     
-    const categories = await sheetsService.getCategories();
+    const categories = await req.sheetsService.getCategories();
     
     res.json({
       success: true,
